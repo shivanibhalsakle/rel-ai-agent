@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.me import router as me_router
+from app.api.preferences import router as preferences_router
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -22,3 +23,4 @@ app.add_middleware(
 
 app.include_router(health_router, prefix="/v1", tags=["health"])
 app.include_router(me_router, prefix="/v1", tags=["auth"])
+app.include_router(preferences_router, prefix="/v1", tags=["preferences"])
