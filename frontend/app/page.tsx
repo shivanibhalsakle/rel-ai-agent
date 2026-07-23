@@ -60,6 +60,9 @@ export default function HomePage() {
           >
             Set up my preferences
           </Link>
+          <Link href="/settings" className="text-sm text-slate-500 underline">
+            Edit my preferences
+          </Link>
           <button
             onClick={checkBackend}
             disabled={checking}
