@@ -1,5 +1,6 @@
 -r requirements.txt
 pytest>=8.3.2
 pytest-asyncio>=0.23.8
-httpx>=0.27.0
 ruff>=0.5.6
+# httpx2 comes from requirements.txt already — that's what starlette.testclient.TestClient
+# picks up for the health/auth/preferences tests, no separate test-only HTTP client needed.

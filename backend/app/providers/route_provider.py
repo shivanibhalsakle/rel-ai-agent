@@ -4,7 +4,7 @@ three fields we use (distance, duration, polyline) — same cost-control
 principle as PlacesProvider, since Routes API also bills based on which
 fields/route-preference tiers a request includes.
 """
-import httpx
+import httpx2 as httpx  # httpx is unmaintained upstream; httpx2 is its API-compatible successor
 from pydantic import BaseModel
 
 from app.core.cache import get_or_fetch

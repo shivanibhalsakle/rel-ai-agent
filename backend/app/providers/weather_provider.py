@@ -5,7 +5,7 @@ own unit (e.g. temperature.degrees + temperature.unit), so we carry the unit
 through explicitly rather than assuming Celsius, since Google doesn't
 guarantee which unit system a request returns without an explicit param.
 """
-import httpx
+import httpx2 as httpx  # httpx is unmaintained upstream; httpx2 is its API-compatible successor
 from pydantic import BaseModel
 
 from app.core.cache import get_or_fetch

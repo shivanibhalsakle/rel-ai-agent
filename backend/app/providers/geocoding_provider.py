@@ -6,7 +6,7 @@ we ever swap providers (see design doc: "Separate agent logic from provider
 logic"). Cached via the shared apiCache layer with a long TTL, since a given
 address's coordinates essentially never change.
 """
-import httpx
+import httpx2 as httpx  # httpx is unmaintained upstream; httpx2 is its API-compatible successor
 from pydantic import BaseModel
 
 from app.core.cache import get_or_fetch

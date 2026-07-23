@@ -9,7 +9,7 @@ Search results here intentionally stay in the cheaper Basic tier — enough to
 rank and show a shortlist. Richer (paid) details only get fetched later for
 the handful of places a user actually looks at, not for every search result.
 """
-import httpx
+import httpx2 as httpx  # httpx is unmaintained upstream; httpx2 is its API-compatible successor
 from pydantic import BaseModel
 
 from app.core.cache import get_or_fetch
