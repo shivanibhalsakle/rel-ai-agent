@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.auth.dependencies import get_current_user
 from app.providers.geocoding_provider import GeocodeResult, GeocodingProvider
 from app.providers.places_provider import PlaceCandidate, PlacesProvider
+from app.providers.weather_provider import HourlyForecast, WeatherProvider
 
 router = APIRouter()
 
@@ -47,3 +48,11 @@ async def debug_places_text(
 ) -> list[PlaceCandidate]:
     provider = PlacesProvider()
     return await provider.search_text(query)
+
+
+@router.get("/debug/weather/hourly", response_model=list[HourlyForecast])
+async def debug_weather_hourly(
+    lat: float, lng: float, hours: int = 12, user: dict = Depends(get_current_user)
+) -> list[HourlyForecast]:
+    provider = WeatherProvider()
+    return await provider.get_hourly_forecast(lat=lat, lng=lng, hours=hours)
