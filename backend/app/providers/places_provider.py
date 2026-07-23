@@ -12,10 +12,12 @@ the handful of places a user actually looks at, not for every search result.
 import httpx
 from pydantic import BaseModel
 
+from app.core.cache import get_or_fetch
 from app.core.config import get_settings
 
 SEARCH_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
 SEARCH_TEXT_URL = "https://places.googleapis.com/v1/places:searchText"
+CACHE_TTL_SECONDS = 60 * 60 * 24  # 1 day — ratings/hours drift slowly, but do drift
 
 SEARCH_FIELD_MASK = ",".join(
     [
@@ -71,6 +73,26 @@ class PlacesProvider:
         cheap/broad search first, then selective Details fetches later only
         for shortlisted candidates a scoring step actually picks, never full
         Details for every nearby result."""
+        params = {
+            "lat": round(lat, 4),
+            "lng": round(lng, 4),
+            "radius_meters": radius_meters,
+            "included_types": sorted(included_types),
+            "max_results": max_results,
+        }
+        result = await get_or_fetch(
+            provider="places_nearby",
+            params=params,
+            ttl_seconds=CACHE_TTL_SECONDS,
+            fetch_fn=lambda: self._fetch_search_nearby(lat, lng, radius_meters, included_types, max_results),
+            model_type=PlaceCandidate,
+            is_list=True,
+        )
+        return result or []
+
+    async def _fetch_search_nearby(
+        self, lat: float, lng: float, radius_meters: float, included_types: list[str], max_results: int
+    ) -> list[PlaceCandidate]:
         body = {
             "includedTypes": included_types,
             "maxResultCount": max_results,
@@ -91,6 +113,17 @@ class PlacesProvider:
         return [self._to_candidate(p) for p in data.get("places", [])]
 
     async def search_text(self, query: str, max_results: int = 15) -> list[PlaceCandidate]:
+        result = await get_or_fetch(
+            provider="places_text",
+            params={"query": query.strip().lower(), "max_results": max_results},
+            ttl_seconds=CACHE_TTL_SECONDS,
+            fetch_fn=lambda: self._fetch_search_text(query, max_results),
+            model_type=PlaceCandidate,
+            is_list=True,
+        )
+        return result or []
+
+    async def _fetch_search_text(self, query: str, max_results: int) -> list[PlaceCandidate]:
         body = {"textQuery": query, "maxResultCount": max_results}
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(

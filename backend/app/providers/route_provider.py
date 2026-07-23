@@ -7,11 +7,17 @@ fields/route-preference tiers a request includes.
 import httpx
 from pydantic import BaseModel
 
+from app.core.cache import get_or_fetch
 from app.core.config import get_settings
 
 COMPUTE_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 
 FIELD_MASK = "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline"
+
+# WALK/BICYCLE routes barely change day to day (fixed by road/path network);
+# DRIVE is traffic-aware and stale within minutes, so it gets a much shorter TTL.
+CACHE_TTL_SECONDS_STATIC = 60 * 60 * 24  # 1 day
+CACHE_TTL_SECONDS_TRAFFIC_AWARE = 60 * 10  # 10 min
 
 # Our UserPreferences.travel_mode values -> Routes API's TravelMode enum.
 _TRAVEL_MODE_MAP = {
@@ -44,7 +50,32 @@ class RouteProvider:
         travel_mode: str = "walk",
     ) -> RouteResult | None:
         google_mode = _TRAVEL_MODE_MAP.get(travel_mode, "WALK")
+        ttl = (
+            CACHE_TTL_SECONDS_TRAFFIC_AWARE
+            if google_mode in ("DRIVE", "TWO_WHEELER")
+            else CACHE_TTL_SECONDS_STATIC
+        )
+        params = {
+            "origin": (round(origin_lat, 4), round(origin_lng, 4)),
+            "dest": (round(dest_lat, 4), round(dest_lng, 4)),
+            "mode": google_mode,
+        }
+        return await get_or_fetch(
+            provider="route",
+            params=params,
+            ttl_seconds=ttl,
+            fetch_fn=lambda: self._fetch_route(origin_lat, origin_lng, dest_lat, dest_lng, google_mode),
+            model_type=RouteResult,
+        )
 
+    async def _fetch_route(
+        self,
+        origin_lat: float,
+        origin_lng: float,
+        dest_lat: float,
+        dest_lng: float,
+        google_mode: str,
+    ) -> RouteResult | None:
         body = {
             "origin": {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lng}}},
             "destination": {"location": {"latLng": {"latitude": dest_lat, "longitude": dest_lng}}},

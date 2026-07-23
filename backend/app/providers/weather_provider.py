@@ -8,9 +8,11 @@ guarantee which unit system a request returns without an explicit param.
 import httpx
 from pydantic import BaseModel
 
+from app.core.cache import get_or_fetch
 from app.core.config import get_settings
 
 FORECAST_HOURS_URL = "https://weather.googleapis.com/v1/forecast/hours:lookup"
+CACHE_TTL_SECONDS = 60 * 30  # 30 min — weather is the most time-sensitive of the four providers
 
 
 class HourlyForecast(BaseModel):
@@ -42,6 +44,17 @@ class WeatherProvider:
         needs. Multi-day forecasts (nextPageToken pagination) can be added
         later if a use case actually needs them."""
         hours = min(hours, 24)
+        result = await get_or_fetch(
+            provider="weather_hourly",
+            params={"lat": round(lat, 3), "lng": round(lng, 3), "hours": hours},
+            ttl_seconds=CACHE_TTL_SECONDS,
+            fetch_fn=lambda: self._fetch_hourly_forecast(lat, lng, hours),
+            model_type=HourlyForecast,
+            is_list=True,
+        )
+        return result or []
+
+    async def _fetch_hourly_forecast(self, lat: float, lng: float, hours: int) -> list[HourlyForecast]:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 FORECAST_HOURS_URL,
