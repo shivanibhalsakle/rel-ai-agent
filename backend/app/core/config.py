@@ -14,8 +14,13 @@ class Settings(BaseSettings):
     environment: str = "local"  # local | staging | production
     cors_allow_origins: str = "http://localhost:3000"
 
-    # Populated in later milestones — left optional so M0 runs with none of them set.
     firebase_project_id: str | None = None
+    # Path to the Firebase service account JSON, for local dev only. On Cloud Run this stays
+    # unset — the deployed service uses its attached service account identity instead (no key
+    # file needed there).
+    google_application_credentials: str | None = None
+
+    # Populated in later milestones — left optional so M0 runs with none of them set.
     anthropic_api_key: str | None = None
     google_maps_api_key: str | None = None
 
