@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 
@@ -22,6 +23,13 @@ export default function HomePage() {
     } finally {
       setChecking(false);
     }
+  }
+
+  async function copyIdToken() {
+    const idToken = await getIdToken();
+    if (!idToken) return;
+    await navigator.clipboard.writeText(idToken);
+    setBackendResult("ID token copied to clipboard.");
   }
 
   if (loading) {
@@ -46,6 +54,12 @@ export default function HomePage() {
       ) : (
         <div className="flex flex-col items-center gap-3">
           <p className="text-slate-600">Signed in as {user.email}</p>
+          <Link
+            href="/onboarding"
+            className="rounded-md bg-slate-900 px-4 py-2 text-white hover:bg-slate-700"
+          >
+            Set up my preferences
+          </Link>
           <button
             onClick={checkBackend}
             disabled={checking}
@@ -56,6 +70,9 @@ export default function HomePage() {
           {backendResult && (
             <p className="max-w-md break-words text-sm text-slate-600">{backendResult}</p>
           )}
+          <button onClick={copyIdToken} className="text-sm text-slate-500 underline">
+            Copy my ID token (for testing /docs)
+          </button>
           <button onClick={() => signOut()} className="text-sm text-slate-500 underline">
             Sign out
           </button>
