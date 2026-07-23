@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth.dependencies import get_current_user
 from app.providers.geocoding_provider import GeocodeResult, GeocodingProvider
+from app.providers.places_provider import PlaceCandidate, PlacesProvider
 
 router = APIRouter()
 
@@ -24,3 +25,25 @@ async def debug_geocode(address: str, user: dict = Depends(get_current_user)) ->
             detail=f"Could not geocode '{address}' — try a more specific address.",
         )
     return result
+
+
+@router.get("/debug/places/nearby", response_model=list[PlaceCandidate])
+async def debug_places_nearby(
+    lat: float,
+    lng: float,
+    place_type: str = "gym",
+    radius_meters: float = 3000,
+    user: dict = Depends(get_current_user),
+) -> list[PlaceCandidate]:
+    provider = PlacesProvider()
+    return await provider.search_nearby(
+        lat=lat, lng=lng, radius_meters=radius_meters, included_types=[place_type]
+    )
+
+
+@router.get("/debug/places/text", response_model=list[PlaceCandidate])
+async def debug_places_text(
+    query: str, user: dict = Depends(get_current_user)
+) -> list[PlaceCandidate]:
+    provider = PlacesProvider()
+    return await provider.search_text(query)
