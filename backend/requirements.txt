@@ -11,8 +11,9 @@ python-dotenv>=1.0.1
 firebase-admin>=6.5.0
 # ^ firebase-admin already bundles Firestore support (app.db.firestore_client uses
 # firebase_admin.firestore) — no separate google-cloud-firestore install needed.
+httpx>=0.27.0
+# ^ used for real outbound calls to Google Maps Platform APIs (providers), not just testing.
 
 # Added in later milestones (kept here as a preview, not yet imported):
 # langgraph>=0.1.19
 # langchain-anthropic>=0.1.23
-# httpx>=0.27.0
