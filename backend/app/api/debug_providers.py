@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.auth.dependencies import get_current_user
 from app.providers.geocoding_provider import GeocodeResult, GeocodingProvider
 from app.providers.places_provider import PlaceCandidate, PlacesProvider
+from app.providers.route_provider import RouteProvider, RouteResult
 from app.providers.weather_provider import HourlyForecast, WeatherProvider
 
 router = APIRouter()
@@ -56,3 +57,21 @@ async def debug_weather_hourly(
 ) -> list[HourlyForecast]:
     provider = WeatherProvider()
     return await provider.get_hourly_forecast(lat=lat, lng=lng, hours=hours)
+
+
+@router.get("/debug/route", response_model=RouteResult)
+async def debug_route(
+    origin_lat: float,
+    origin_lng: float,
+    dest_lat: float,
+    dest_lng: float,
+    travel_mode: str = "walk",
+    user: dict = Depends(get_current_user),
+) -> RouteResult:
+    provider = RouteProvider()
+    result = await provider.compute_route(origin_lat, origin_lng, dest_lat, dest_lng, travel_mode)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No route found between those points."
+        )
+    return result
