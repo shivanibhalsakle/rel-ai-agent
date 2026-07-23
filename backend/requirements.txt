@@ -1,12 +1,17 @@
-fastapi==0.111.1
-uvicorn==0.30.3
-pydantic==2.8.2
-pydantic-settings==2.4.0
-python-dotenv==1.0.1
+# Minimum-version pins, not exact, for this layer on purpose: FastAPI/uvicorn/pydantic move fast
+# enough that an exact pin goes stale within weeks and causes transitive mismatches (this is what
+# broke the eager_task_factory startup crash). Letting pip resolve >= floors keeps us on a
+# mutually-compatible current set. Once the app is feature-complete we'll freeze exact versions
+# into a lock file for reproducible builds.
+fastapi>=0.139.0
+uvicorn>=0.51.0
+pydantic>=2.9.0
+pydantic-settings>=2.14.0
+python-dotenv>=1.0.1
 
 # Added in later milestones (kept here as a preview, not yet imported):
-# google-cloud-firestore==2.16.1
-# firebase-admin==6.5.0
-# langgraph==0.1.19
-# langchain-anthropic==0.1.23
-# httpx==0.27.0
+# google-cloud-firestore>=2.16.1
+# firebase-admin>=6.5.0
+# langgraph>=0.1.19
+# langchain-anthropic>=0.1.23
+# httpx>=0.27.0
