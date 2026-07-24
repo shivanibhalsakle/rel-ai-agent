@@ -3,7 +3,10 @@ from langchain_core.messages import HumanMessage
 from app.agent.nodes.generate_explanation import _ExplanationBatch, generate_explanation
 from app.agent.state import new_agent_state
 from app.providers.places_provider import PlaceCandidate
+from app.providers.route_provider import RouteResult
+from app.providers.weather_provider import HourlyForecast
 from app.scoring.base import ScoreComponent, to_scored_result
+from app.scoring.route_scoring import RouteCandidate
 
 
 class _StubLLM:
@@ -88,6 +91,61 @@ async def test_unresolved_error_with_no_results_produces_an_honest_message():
 
     assert update == {"explanation": 'I couldn\'t complete that search: Could not find a location for "asdkfjh".'}
     assert stub.structured_call is None
+
+
+def _scored_route(candidate_id: str, label: str, facts: list[str]):
+    candidate = RouteCandidate(
+        candidate_id=candidate_id,
+        route=RouteResult(distance_meters=4800.0, duration_seconds=3400.0, encoded_polyline="enc"),
+        park_coverage_ratio=0.5,
+        label=label,
+    )
+    components = [ScoreComponent(factor=f"f{i}", score=1.0, weight=1, detail=fact) for i, fact in enumerate(facts)]
+    return to_scored_result(item=candidate, components=components)
+
+
+def _scored_forecast(start_time: str, facts: list[str]):
+    forecast = HourlyForecast(
+        start_time=start_time,
+        is_daytime=True,
+        condition="Clear",
+        condition_type="CLEAR",
+        temperature_degrees=18.0,
+        temperature_unit="CELSIUS",
+    )
+    components = [ScoreComponent(factor=f"f{i}", score=1.0, weight=1, detail=fact) for i, fact in enumerate(facts)]
+    return to_scored_result(item=forecast, components=components)
+
+
+async def test_route_intent_uses_label_as_name_and_candidate_id_as_key():
+    state = new_agent_state(user_id="u1", session_id="s1")
+    state["intent"] = "route"
+    state["scored_results"] = [_scored_route("r1", "Riverside Loop", ["4.8 km (target 4.8 km)", "60% through parks"])]
+    stub = _StubLLM(structured_response=_ExplanationBatch(explanations=["A close match to your target distance, mostly through parks."]))
+
+    update = await generate_explanation(state, llm=stub)
+
+    # RouteCandidate has no `name` field -- item_display_name() must fall
+    # back to `label`, and item_id() to `candidate_id`, not crash with
+    # AttributeError the way the old getattr(item, "name"/"place_id", ...)
+    # calls would have.
+    assert update["explanations"] == {"r1": "A close match to your target distance, mostly through parks."}
+    assert "Riverside Loop" in stub.structured_call["user_message"]
+
+
+async def test_weather_intent_uses_formatted_hour_as_name_and_start_time_as_key():
+    state = new_agent_state(user_id="u1", session_id="s1")
+    state["intent"] = "weather"
+    state["scored_results"] = [_scored_forecast("2026-07-24T14:00:00Z", ["18°C", "Daytime"])]
+    stub = _StubLLM(structured_response=_ExplanationBatch(explanations=["Pleasant and dry."]))
+
+    update = await generate_explanation(state, llm=stub)
+
+    # HourlyForecast has neither `name` nor `label` -- item_display_name()
+    # must fall back to a formatted, explicitly-UTC-labeled start_time, and
+    # item_id() to the raw start_time string as the stable key.
+    assert update["explanations"] == {"2026-07-24T14:00:00Z": "Pleasant and dry."}
+    assert "02:00 PM UTC" in stub.structured_call["user_message"]
 
 
 async def test_fewer_explanations_than_items_does_not_crash():

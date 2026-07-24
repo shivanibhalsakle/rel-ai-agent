@@ -30,16 +30,27 @@ class ResumeRequest(CamelModel):
 
 class Recommendation(CamelModel):
     rank: int
+    # place_id is a slight misnomer for route/weather results (M6) --
+    # kept as-is rather than renamed, to not break the frontend's already-
+    # shipped wire contract (M5). Populated via app.scoring.base.item_id(),
+    # which is a real place_id for fitness/workspace, a route candidate_id
+    # for route, and a forecast start_time for weather -- always a stable
+    # identifier, not always literally a Google Place ID.
     place_id: str
     name: str
     score: float
     score_breakdown: dict[str, float]
     explanation: str | None = None
     # Added for M5.5 (map display) -- every scored PlaceCandidate already
-    # carries these (M2.3), _build_response just wasn't copying them
-    # through until the frontend actually needed to plot a marker.
-    lat: float
-    lng: float
+    # carries these (M2.3). Optional as of M6: RouteCandidate has no
+    # single point (it's a path -- see M6.7 for the real polyline-based
+    # map treatment) and HourlyForecast has no location of its own at all,
+    # so both are None rather than a fabricated 0.0. The frontend's map
+    # already filters out non-finite coordinates (M5.5's RecommendationMap
+    # defensive fix), so this degrades to "no pin for this one" instead of
+    # a bad marker.
+    lat: float | None = None
+    lng: float | None = None
 
 
 class ChatResponse(CamelModel):

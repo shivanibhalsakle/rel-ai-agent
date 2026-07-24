@@ -28,7 +28,15 @@ export function RecommendationMap({ recommendations }: { recommendations: Recomm
   // straight out of the Marker/LatLngBounds constructors. Filtering here
   // means a page that's carrying stale pre-M5.5 history degrades to
   // "fewer pins" instead of a broken map for the whole message.
-  const plottable = recommendations.filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng));
+  //
+  // As of M6, lat/lng are also legitimately null (not just historically
+  // missing) for route/weather results -- typeof-narrowing before
+  // Number.isFinite is now required, not just defensive, since
+  // Number.isFinite's TS signature takes `number`, not `number | null`.
+  const plottable = recommendations.filter(
+    (r): r is Recommendation & { lat: number; lng: number } =>
+      typeof r.lat === "number" && Number.isFinite(r.lat) && typeof r.lng === "number" && Number.isFinite(r.lng)
+  );
 
   useEffect(() => {
     let cancelled = false;

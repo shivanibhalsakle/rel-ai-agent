@@ -16,11 +16,20 @@ Also handles "general" intent (no search happened, nothing to score) by
 generating a direct conversational reply into the singular `explanation`
 field instead — the one case where a single overall string, not a per-item
 dict, is the right shape (see state.py for why both fields exist).
+
+Display name and dict key used to be `getattr(item, "name"/"place_id", ...)`
+directly -- fine when fitness/workspace's PlaceCandidate was the only item
+type this ever saw. M6 added route_scoring/weather_scoring results
+(RouteCandidate has no `name`, only `label`; HourlyForecast has neither),
+so both now go through app.scoring.base's item_display_name()/item_id(),
+shared with the /v1/chat response layer so an item is identified the same
+way in both places.
 """
 from pydantic import BaseModel
 
 from app.agent.state import AgentState
 from app.providers.llm_provider import LLMProvider
+from app.scoring.base import item_display_name, item_id
 
 TOP_N_EXPLANATIONS = 5
 # ^ only the results a UI would actually surface get an LLM-written
@@ -73,7 +82,7 @@ async def generate_explanation(state: AgentState, llm: LLMProvider | None = None
 
     item_descriptions = []
     for result in top_results:
-        name = getattr(result.item, "name", "this option")
+        name = item_display_name(result.item)
         facts = "; ".join(result.explanation)
         item_descriptions.append(f"- {name}: {facts}")
 
@@ -88,8 +97,6 @@ async def generate_explanation(state: AgentState, llm: LLMProvider | None = None
     # rather than the node crashing on a mismatch.
     explanations: dict[str, str] = {}
     for result, sentence in zip(top_results, batch.explanations):
-        place_id = getattr(result.item, "place_id", None)
-        if place_id:
-            explanations[place_id] = sentence
+        explanations[item_id(result.item)] = sentence
 
     return {"explanations": explanations}

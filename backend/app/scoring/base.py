@@ -9,6 +9,7 @@ Deliberately pure Python / pydantic only — no I/O, no provider calls, no LLM.
 That's the point of Milestone 3: ranking logic that's fully deterministic and
 testable on its own.
 """
+import datetime
 from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field
@@ -99,3 +100,58 @@ def rank(results: list[ScoredResult[T]]) -> list[ScoredResult[T]]:
     into to_scored_result) so callers can score a batch, then rank, without
     re-sorting on every single insert."""
     return sorted(results, key=lambda r: r.total_score, reverse=True)
+
+
+def item_id(item) -> str:
+    """A stable identifier for a scored item, regardless of which domain
+    it came from -- PlaceCandidate (fitness/workspace) uses place_id,
+    RouteCandidate uses candidate_id, HourlyForecast has no natural id at
+    all so its start_time stands in for one. Added in M6 so
+    generate_explanation and the /v1/chat response layer key each item
+    the same way without either one hardcoding "place_id" and silently
+    breaking (AttributeError, or worse, a wrong/empty key) the moment a
+    route or weather result reaches that code."""
+    place_id = getattr(item, "place_id", None)
+    if place_id:
+        return place_id
+    candidate_id = getattr(item, "candidate_id", None)
+    if candidate_id:
+        return candidate_id
+    start_time = getattr(item, "start_time", None)
+    if start_time:
+        return start_time
+    return "unknown"
+
+
+def _format_hour_utc(start_time_iso: str) -> str:
+    """Formats an HourlyForecast's ISO 8601 UTC start_time as a readable
+    hour. Deliberately labeled UTC rather than converted to a local time
+    -- this app doesn't track a user's timezone anywhere yet, and
+    silently displaying UTC as if it were local would be a wrong answer
+    dressed up as a right one. An honest, slightly less convenient UTC
+    label is the better failure mode until real timezone handling exists.
+    """
+    try:
+        parsed = datetime.datetime.fromisoformat(start_time_iso.replace("Z", "+00:00"))
+        return parsed.strftime("%I:%M %p UTC")
+    except ValueError:
+        return start_time_iso
+
+
+def item_display_name(item) -> str:
+    """A human-readable label for a scored item, regardless of domain --
+    PlaceCandidate has `name`, RouteCandidate has `label`, HourlyForecast
+    has neither (its start_time gets formatted instead). Shared by
+    generate_explanation (phrasing each item's sentence) and the
+    /v1/chat response layer (each Recommendation's display name), so
+    both stay in sync without duplicating per-type logic in two places."""
+    name = getattr(item, "name", None)
+    if name:
+        return name
+    label = getattr(item, "label", None)
+    if label:
+        return label
+    start_time = getattr(item, "start_time", None)
+    if start_time:
+        return _format_hour_utc(start_time)
+    return "this option"

@@ -22,6 +22,8 @@ from app.auth.dependencies import get_current_user
 from app.main import app
 from app.scoring.base import ScoreComponent, to_scored_result
 from app.providers.places_provider import PlaceCandidate
+from app.providers.route_provider import RouteResult
+from app.scoring.route_scoring import RouteCandidate
 
 
 class FakeGraph:
@@ -191,6 +193,32 @@ def test_completed_response_includes_ranked_recommendations(client, monkeypatch)
     assert body["recommendations"][0]["scoreBreakdown"] == {"rating": 0.9}
     assert body["recommendations"][0]["lat"] == 1.0
     assert body["recommendations"][0]["lng"] == 1.0
+
+
+def test_route_result_has_null_lat_lng_not_a_crash(client, monkeypatch):
+    # RouteCandidate has no single point (it's a path) -- the response
+    # layer must serialize None, not raise trying to read a nonexistent
+    # .lat/.lng off the item (the AttributeError this schema-relaxation
+    # was built to prevent, per M6.4).
+    route = RouteCandidate(
+        candidate_id="r1",
+        route=RouteResult(distance_meters=4800.0, duration_seconds=3400.0, encoded_polyline="enc"),
+        park_coverage_ratio=0.5,
+        label="Riverside Loop",
+    )
+    component = ScoreComponent(factor="distance_target", score=0.9, weight=4.0, detail="4.8 km (target 4.8 km)")
+    scored = to_scored_result(item=route, components=[component])
+    fake = FakeGraph(result={"intent": "route", "scored_results": [scored], "explanations": {"r1": "Close match."}})
+    monkeypatch.setattr(chat_module, "get_graph", lambda: fake)
+
+    response = client.post("/v1/chat", json={"message": "find me a 3 mile route"})
+
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["recommendations"][0]["placeId"] == "r1"
+    assert body["recommendations"][0]["name"] == "Riverside Loop"
+    assert body["recommendations"][0]["lat"] is None
+    assert body["recommendations"][0]["lng"] is None
 
 
 # ---- /v1/chat/{sessionId}/resume ----

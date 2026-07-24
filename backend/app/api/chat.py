@@ -27,6 +27,7 @@ from app.agent.graph import get_graph
 from app.agent.state import new_agent_state
 from app.auth.dependencies import get_current_user
 from app.schemas.chat import ChatRequest, ChatResponse, Recommendation, ResumeRequest
+from app.scoring.base import item_display_name, item_id
 
 router = APIRouter()
 
@@ -75,13 +76,16 @@ def _build_response(session_id: str, result: dict) -> ChatResponse:
     recommendations = [
         Recommendation(
             rank=i + 1,
-            place_id=scored.item.place_id,
-            name=scored.item.name,
+            place_id=item_id(scored.item),
+            name=item_display_name(scored.item),
             score=scored.total_score,
             score_breakdown={c.factor: c.score for c in scored.components},
-            explanation=result.get("explanations", {}).get(scored.item.place_id),
-            lat=scored.item.lat,
-            lng=scored.item.lng,
+            explanation=result.get("explanations", {}).get(item_id(scored.item)),
+            # None for RouteCandidate/HourlyForecast -- see Recommendation's
+            # own field comment (schemas/chat.py) for why that's correct,
+            # not a bug.
+            lat=getattr(scored.item, "lat", None),
+            lng=getattr(scored.item, "lng", None),
         )
         for i, scored in enumerate(result.get("scored_results") or [])
     ]

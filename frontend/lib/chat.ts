@@ -15,8 +15,13 @@ export interface Recommendation {
   score: number;
   scoreBreakdown: Record<string, number>;
   explanation: string | null;
-  lat: number;
-  lng: number;
+  // Optional as of M6: only fitness/workspace results (real places) have
+  // a single point. Route results are a path, not a point (M6.7 renders
+  // those via polyline instead), and weather results have no location of
+  // their own. RecommendationMap already filters non-finite coordinates
+  // (M5.5), so this degrades to "no pin" rather than a broken marker.
+  lat: number | null;
+  lng: number | null;
 }
 
 export interface ChatResponse {
