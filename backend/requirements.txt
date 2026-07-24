@@ -17,6 +17,15 @@ httpx2>=2.2.0
 # the replacement Starlette/FastAPI's own ecosystem has moved to — confirmed via PyPI before
 # switching, not assumed.
 
-# Added in later milestones (kept here as a preview, not yet imported):
-# langgraph>=0.1.19
-# langchain-anthropic>=0.1.23
+# Milestone 4 (agent):
+langgraph>=1.2.0
+# ^ the earlier placeholder pin here (0.1.19) was written before LangGraph's 1.0 release and is
+# API-incompatible with it (checkpointer imports and the interrupt pattern both changed) — checked
+# against the current PyPI listing (1.2.4, July 2026) before pinning, not left stale.
+langchain-core>=1.4.0
+# ^ only langchain-core (message types: BaseMessage/HumanMessage/AIMessage), not the full
+# `langchain` package or `langchain-anthropic` — LLMProvider calls the `anthropic` SDK directly,
+# consistent with this project's provider-abstraction pattern (LLMProvider IS the abstraction
+# layer; an extra framework wrapper on top of it wouldn't earn its complexity here).
+anthropic>=0.102.0
+# ^ official Claude SDK, used directly by app/providers/llm_provider.py.
