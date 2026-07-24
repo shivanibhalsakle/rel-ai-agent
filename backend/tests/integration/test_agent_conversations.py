@@ -20,14 +20,15 @@ that gets compiled. That's what _build_test_graph does below.
 
 Only the nodes that need a real API key are faked this way: understand_request,
 load_preferences, generate_clarifying_question, geocode_location,
-search_places, fetch_place_details, generate_explanation. Everything else
-(check_missing_info, ask_user, the three check_tool_budget instances,
-handle_provider_error, score_recommendations, not_yet_supported,
-budget_exceeded, and every conditional-edge routing function) is the REAL
-implementation -- these tests are exercising exactly that code, using
-fitness_scoring/workspace_scoring (M3) for real against fake PlaceCandidate
-data, so the scoring hand-off is genuinely tested too, not just stubbed
-through.
+search_places, fetch_place_details, generate_route_candidates,
+fetch_weather_forecast, generate_explanation. Everything else
+(check_missing_info, ask_user, the five check_tool_budget instances,
+handle_provider_error, score_recommendations, budget_exceeded, and every
+conditional-edge routing function) is the REAL implementation -- these
+tests are exercising exactly that code, using fitness_scoring/
+workspace_scoring/route_scoring/weather_scoring (M3) for real against fake
+provider data, so the scoring hand-off is genuinely tested too, not just
+stubbed through.
 """
 import app.agent.graph as graph_module
 from langchain_core.messages import HumanMessage
@@ -35,7 +36,11 @@ from langgraph.types import Command
 
 from app.agent.state import new_agent_state
 from app.providers.places_provider import PlaceCandidate
+from app.providers.route_provider import RouteResult
+from app.providers.weather_provider import HourlyForecast
 from app.schemas.preferences import UserPreferences
+from app.scoring.base import item_display_name, item_id
+from app.scoring.route_scoring import RouteCandidate
 
 
 class _FakeNode:
@@ -75,18 +80,43 @@ def _place(place_id, name, rating=4.5):
     return PlaceCandidate(place_id=place_id, name=name, lat=40.7, lng=-73.9, rating=rating)
 
 
+def _route_candidate(candidate_id, label, distance_meters=4800.0):
+    return RouteCandidate(
+        candidate_id=candidate_id,
+        route=RouteResult(distance_meters=distance_meters, duration_seconds=distance_meters / 1.4, encoded_polyline="enc"),
+        park_coverage_ratio=0.6,
+        label=label,
+    )
+
+
+def _forecast(start_time, temp_c=18.0):
+    return HourlyForecast(
+        start_time=start_time,
+        is_daytime=True,
+        condition="Clear",
+        condition_type="CLEAR",
+        temperature_degrees=temp_c,
+        temperature_unit="CELSIUS",
+    )
+
+
 def _explanations_from_scores(state):
     """A generic-enough generate_explanation fake: phrases whatever
     score_recommendations (the REAL node) actually produced, or the
     honest degrade message if the pipeline failed upstream -- mirrors the
-    two branches M4.7's real node has, without needing an LLM call."""
+    two branches M4.7's real node has, without needing an LLM call.
+
+    Keyed via item_id() and phrased via item_display_name() (M6's shared
+    helpers), not a hardcoded r.item.place_id/r.item.name -- route/weather
+    results have neither at all, so this fake needs the same domain-
+    agnostic lookups the real generate_explanation node uses."""
     top = state.get("scored_results", [])[:5]
     if not top:
         errors = state.get("errors", [])
         if errors:
             return {"explanation": f"I couldn't complete that search: {errors[-1]['message']}"}
         return {"explanations": {}}
-    return {"explanations": {r.item.place_id: f"Good pick: {r.item.name}" for r in top}}
+    return {"explanations": {item_id(r.item): f"Good pick: {item_display_name(r.item)}" for r in top}}
 
 
 # ---- fitness: clarifying question, then a second turn that completes ----
@@ -227,24 +257,98 @@ async def test_general_intent_skips_search_entirely(monkeypatch):
     assert result["scored_results"] == []
 
 
-# ---- route/weather: recognized but not yet built (Milestone 6) ----
+# ---- route: geocode -> generate_route_candidates -> score -> explain (Milestone 6) ----
 
 
-async def test_route_intent_routes_to_not_yet_supported(monkeypatch):
+async def test_route_flow_generates_and_scores_candidates(monkeypatch):
     understand = _FakeNode(
-        {"intent": "route", "extracted_preferences": {}, "location_query": "Golden Gate Park"}
+        {
+            "intent": "route",
+            "extracted_preferences": {"target_distance_meters": 4800.0},
+            "location_query": "Golden Gate Park",
+        }
     )
     load_prefs = _FakeNode({"saved_preferences": UserPreferences()})
+    geocode = _FakeNode(
+        {"resolved_location": {"lat": 37.769, "lng": -122.483, "formatted_address": "Golden Gate Park, San Francisco, CA"}}
+    )
+    candidates = _FakeNode(
+        {
+            "route_candidates": [
+                _route_candidate("route-0", "Out-and-back to Golden Gate Park", distance_meters=4800.0),
+                _route_candidate("route-1", "Out-and-back heading north", distance_meters=9000.0),
+            ]
+        }
+    )
+    explain = _FakeNode(_explanations_from_scores)
 
-    graph = _build_test_graph(monkeypatch, understand_request=understand, load_preferences=load_prefs)
+    graph = _build_test_graph(
+        monkeypatch,
+        understand_request=understand,
+        load_preferences=load_prefs,
+        geocode_location=geocode,
+        generate_route_candidates=candidates,
+        generate_explanation=explain,
+    )
     config = _config("route-session")
 
     state = new_agent_state(user_id="u1", session_id="route-session")
-    state["messages"] = [HumanMessage(content="find me a running route near Golden Gate Park")]
+    state["messages"] = [HumanMessage(content="find me a 3 mile route near Golden Gate Park")]
     result = await graph.ainvoke(state, config)
 
-    assert "route" in result["explanation"].lower()
-    assert result["tool_call_count"] == 0  # not_yet_supported never touches a tool node
+    assert "__interrupt__" not in result
+    assert result["intent"] == "route"
+    assert len(result["scored_results"]) == 2
+    # "route-0" matches the extracted 4800m target exactly -- route_scoring
+    # (the REAL node) should rank it first, confirming target_distance_meters
+    # actually flowed from extracted_preferences through to scoring.
+    assert result["scored_results"][0].item.candidate_id == "route-0"
+    assert set(result["explanations"]) == {"route-0", "route-1"}
+    assert result["tool_call_count"] == 2  # geocode + generate_route_candidates, each gated
+
+
+# ---- weather: geocode -> fetch_weather_forecast -> score -> explain (Milestone 6) ----
+
+
+async def test_weather_flow_fetches_and_scores_forecast(monkeypatch):
+    understand = _FakeNode({"intent": "weather", "extracted_preferences": {}, "location_query": "Prospect Park"})
+    load_prefs = _FakeNode({"saved_preferences": UserPreferences()})
+    geocode = _FakeNode(
+        {"resolved_location": {"lat": 40.66, "lng": -73.97, "formatted_address": "Prospect Park, Brooklyn, NY"}}
+    )
+    forecast = _FakeNode(
+        {
+            "weather_data": [
+                _forecast("2026-07-24T06:00:00Z", temp_c=2.0),
+                _forecast("2026-07-24T14:00:00Z", temp_c=18.0),
+            ]
+        }
+    )
+    explain = _FakeNode(_explanations_from_scores)
+
+    graph = _build_test_graph(
+        monkeypatch,
+        understand_request=understand,
+        load_preferences=load_prefs,
+        geocode_location=geocode,
+        fetch_weather_forecast=forecast,
+        generate_explanation=explain,
+    )
+    config = _config("weather-session")
+
+    state = new_agent_state(user_id="u1", session_id="weather-session")
+    state["messages"] = [HumanMessage(content="best time to run today near Prospect Park")]
+    result = await graph.ainvoke(state, config)
+
+    assert "__interrupt__" not in result
+    assert result["intent"] == "weather"
+    assert len(result["scored_results"]) == 2
+    # The mild 18C hour should outrank the near-freezing 2C hour --
+    # confirms weather_scoring (the REAL node) actually ran, not just that
+    # something was returned.
+    assert result["scored_results"][0].item.start_time == "2026-07-24T14:00:00Z"
+    assert set(result["explanations"]) == {"2026-07-24T06:00:00Z", "2026-07-24T14:00:00Z"}
+    assert result["tool_call_count"] == 2  # geocode + fetch_weather_forecast, each gated
 
 
 # ---- tool budget: short-circuits before a second gated call ----

@@ -16,7 +16,6 @@ EXPECTED_NODES = {
     "check_missing_info",
     "generate_clarifying_question",
     "ask_user",
-    "not_yet_supported",
     "budget_exceeded",
     "check_budget_geocode",
     "geocode_location",
@@ -26,6 +25,10 @@ EXPECTED_NODES = {
     "handle_search_error",
     "check_budget_details",
     "fetch_place_details",
+    "check_budget_route",
+    "generate_route_candidates",
+    "check_budget_weather",
+    "fetch_weather_forecast",
     "score_recommendations",
     "generate_explanation",
 }

@@ -1,13 +1,35 @@
 """
 Assembles the LangGraph StateGraph for Milestone 4 (fitness + workspace
-discovery via chat). Wires together every node built in M4.1-4.8 following
-the design doc's Step 4 control-flow diagram, deliberately scoped down to
-what M4 actually builds:
+discovery via chat) plus Milestone 6 (route + weather). Wires together
+every node built in M4.1-4.8 and M6.1-M6.4 following the design doc's
+Step 4 control-flow diagram.
 
-- route/weather intents are recognized (understand_request classifies
-  them) but have no search/score pipeline yet (Milestone 6) -- routed to
-  not_yet_supported instead of silently falling through to an empty
-  result.
+- Route/weather now have real pipelines (M6): after geocode_location
+  succeeds, the graph branches by intent to either check_budget_search
+  (fitness/workspace, unchanged from M4) or check_budget_route /
+  check_budget_weather (M6), each gating exactly one tool node
+  (generate_route_candidates / fetch_weather_forecast) the same way
+  check_budget_details gates fetch_place_details. All four intents
+  converge back on the same score_recommendations -> generate_explanation
+  tail.
+- Neither generate_route_candidates nor fetch_weather_forecast gets its
+  own handle_provider_error retry/degrade routing, mirroring
+  fetch_place_details' precedent (see below): both report a failure into
+  state["errors"] and return gracefully (empty candidates/forecast)
+  rather than raising, and score_recommendations/generate_explanation
+  already handle an empty result honestly. A third parallel retry path
+  for two more nodes was weighed against reusing handle_provider_error
+  generically and rejected for the same reason M4.8 scoped retries to
+  just geocode_location/search_places: those two are the ones with
+  structured ProviderError reporting AND a real transient-failure mode
+  (network blips) worth retrying; a bad route/weather fetch degrading
+  straight to "couldn't complete that search" is an acceptable, honest
+  failure mode for this milestone.
+- The not_yet_supported node (M4's placeholder for route/weather) is
+  removed as of M6 -- every intent it used to catch now has a real
+  pipeline, so it had no remaining path to reach it. Deleted rather than
+  left wired to nothing, per this project's running theme of not leaving
+  dead code that misrepresents what the graph actually does.
 - present_results, the accept/reject feedback loop, and calendar approval
   (Milestones 7-8) aren't graph nodes here -- the graph simply ends after
   generate_explanation, and the API layer (M4.10) formats the final state
@@ -51,18 +73,20 @@ from app.agent.nodes.budget_exceeded import budget_exceeded
 from app.agent.nodes.check_missing_info import check_missing_info
 from app.agent.nodes.enforce_tool_budget import check_tool_budget, is_within_budget
 from app.agent.nodes.fetch_place_details import fetch_place_details
+from app.agent.nodes.fetch_weather_forecast import fetch_weather_forecast
 from app.agent.nodes.generate_explanation import generate_explanation
+from app.agent.nodes.generate_route_candidates import generate_route_candidates
 from app.agent.nodes.geocode_location import geocode_location
 from app.agent.nodes.handle_provider_error import handle_provider_error, has_error, route_after_error
 from app.agent.nodes.load_preferences import load_preferences
-from app.agent.nodes.not_yet_supported import not_yet_supported
 from app.agent.nodes.score_recommendations import score_recommendations
 from app.agent.nodes.search_places import search_places
 from app.agent.nodes.understand_request import understand_request
 from app.agent.state import AgentState
 
-_SEARCH_INTENTS = ("fitness", "workspace")
-_UNBUILT_INTENTS = ("route", "weather")
+# Every intent below needs a resolved location before its tool node can run
+# -- geocode_location is the shared first step for all four, same as M4.
+_GEOCODE_REQUIRED_INTENTS = ("fitness", "workspace", "route", "weather")
 
 
 def _route_after_missing_info(state: AgentState) -> str:
@@ -72,11 +96,9 @@ def _route_after_missing_info(state: AgentState) -> str:
     if state["missing_fields"]:
         return "generate_clarifying_question"
     intent = state["intent"]
-    if intent in _SEARCH_INTENTS:
+    if intent in _GEOCODE_REQUIRED_INTENTS:
         return "check_budget_geocode"
-    if intent in _UNBUILT_INTENTS:
-        return "not_yet_supported"
-    return "generate_explanation"  # general (and defensively, anything else)
+    return "generate_explanation"  # general/unclear (and defensively, anything else)
 
 
 def _budget_gate(proceed_to: str):
@@ -90,8 +112,20 @@ def _budget_gate(proceed_to: str):
     return _route
 
 
+_POST_GEOCODE_BUDGET_GATE = {
+    "route": "check_budget_route",
+    "weather": "check_budget_weather",
+}
+
+
 def _route_after_geocode(state: AgentState) -> str:
-    return "handle_geocode_error" if has_error(state) else "check_budget_search"
+    """On success, branches by intent -- fitness/workspace go to
+    check_budget_search (M4, unchanged), route/weather go to their own
+    single-tool-node gate (M6). All three ultimately feed the same
+    score_recommendations, just via a different tool node first."""
+    if has_error(state):
+        return "handle_geocode_error"
+    return _POST_GEOCODE_BUDGET_GATE.get(state["intent"], "check_budget_search")
 
 
 def _route_after_geocode_error(state: AgentState) -> str:
@@ -120,7 +154,6 @@ def build_graph():
     builder.add_node("check_missing_info", check_missing_info)
     builder.add_node("generate_clarifying_question", generate_clarifying_question)
     builder.add_node("ask_user", ask_user)
-    builder.add_node("not_yet_supported", not_yet_supported)
     builder.add_node("budget_exceeded", budget_exceeded)
     builder.add_node("check_budget_geocode", check_tool_budget)
     builder.add_node("geocode_location", geocode_location)
@@ -130,6 +163,10 @@ def build_graph():
     builder.add_node("handle_search_error", handle_provider_error)
     builder.add_node("check_budget_details", check_tool_budget)
     builder.add_node("fetch_place_details", fetch_place_details)
+    builder.add_node("check_budget_route", check_tool_budget)
+    builder.add_node("generate_route_candidates", generate_route_candidates)
+    builder.add_node("check_budget_weather", check_tool_budget)
+    builder.add_node("fetch_weather_forecast", fetch_weather_forecast)
     builder.add_node("score_recommendations", score_recommendations)
     builder.add_node("generate_explanation", generate_explanation)
 
@@ -143,13 +180,11 @@ def build_graph():
         {
             "generate_clarifying_question": "generate_clarifying_question",
             "check_budget_geocode": "check_budget_geocode",
-            "not_yet_supported": "not_yet_supported",
             "generate_explanation": "generate_explanation",
         },
     )
     builder.add_edge("generate_clarifying_question", "ask_user")
     builder.add_edge("ask_user", "understand_request")  # loop -- see module docstring
-    builder.add_edge("not_yet_supported", END)
 
     builder.add_conditional_edges(
         "check_budget_geocode",
@@ -159,7 +194,12 @@ def build_graph():
     builder.add_conditional_edges(
         "geocode_location",
         _route_after_geocode,
-        {"handle_geocode_error": "handle_geocode_error", "check_budget_search": "check_budget_search"},
+        {
+            "handle_geocode_error": "handle_geocode_error",
+            "check_budget_search": "check_budget_search",
+            "check_budget_route": "check_budget_route",
+            "check_budget_weather": "check_budget_weather",
+        },
     )
     builder.add_conditional_edges(
         "handle_geocode_error",
@@ -189,6 +229,21 @@ def build_graph():
         {"fetch_place_details": "fetch_place_details", "budget_exceeded": "budget_exceeded"},
     )
     builder.add_edge("fetch_place_details", "score_recommendations")
+
+    builder.add_conditional_edges(
+        "check_budget_route",
+        _budget_gate("generate_route_candidates"),
+        {"generate_route_candidates": "generate_route_candidates", "budget_exceeded": "budget_exceeded"},
+    )
+    builder.add_edge("generate_route_candidates", "score_recommendations")
+
+    builder.add_conditional_edges(
+        "check_budget_weather",
+        _budget_gate("fetch_weather_forecast"),
+        {"fetch_weather_forecast": "fetch_weather_forecast", "budget_exceeded": "budget_exceeded"},
+    )
+    builder.add_edge("fetch_weather_forecast", "score_recommendations")
+
     builder.add_edge("score_recommendations", "generate_explanation")
 
     builder.add_edge("budget_exceeded", END)
