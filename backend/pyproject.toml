@@ -1,0 +1,9 @@
+[tool.pytest.ini_options]
+# Needed as of M4.3: understand_request and later agent nodes are async
+# (they call LLMProvider), and their tests are plain `async def test_...`
+# functions. Without this, pytest-asyncio requires an explicit
+# @pytest.mark.asyncio on every async test — "auto" mode runs them as
+# asyncio tests automatically instead, which is the standard config with
+# pytest-asyncio 0.23+ for a codebase that's async-first the way this
+# backend increasingly is (FastAPI routes, providers, now agent nodes).
+asyncio_mode = "auto"
