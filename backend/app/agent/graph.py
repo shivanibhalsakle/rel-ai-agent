@@ -30,10 +30,27 @@ Step 4 control-flow diagram.
   pipeline, so it had no remaining path to reach it. Deleted rather than
   left wired to nothing, per this project's running theme of not leaving
   dead code that misrepresents what the graph actually does.
-- present_results, the accept/reject feedback loop, and calendar approval
-  (Milestones 7-8) aren't graph nodes here -- the graph simply ends after
-  generate_explanation, and the API layer (M4.10) formats the final state
-  into the /v1/chat response shape.
+- present_results and the accept/reject feedback loop (Milestone 7) aren't
+  graph nodes here -- the graph simply ends after generate_explanation,
+  and the API layer (M4.10) formats the final state into the /v1/chat
+  response shape.
+- M8.4: fetch_weather_forecast now always proceeds through
+  check_budget_calendar_freebusy -> fetch_calendar_freebusy before
+  score_recommendations, matching the design doc's control-flow diagram
+  ("fetch_weather -> (fetch_calendar_freebusy if connected) ->
+  score_recommendations") -- but the "if connected" branch is decided
+  INSIDE fetch_calendar_freebusy itself (a Firestore token lookup), not by
+  a conditional edge here. Deliberate: every other conditional-edge
+  routing function in this graph only inspects state, never does I/O --
+  M4.11/M6.6's integration tests rely on that (they patch node functions
+  by name to avoid hitting real providers/Firestore, but conditional-edge
+  routing functions always run for real). Putting the connectedness check
+  in the node keeps that invariant intact and costs one no-op
+  tool_call_budget slot for a weather turn from a user with no calendar
+  connected -- cheap compared to real Firestore I/O leaking into a
+  routing function. Calendar-event creation itself (approval interrupt +
+  create_calendar_event) is a separate, later addition to this graph
+  (M8.5/M8.6), not part of this branch.
 - Only geocode_location and search_places get retry/degrade error routing
   -- they're the two nodes with structured ProviderError reporting today.
   fetch_place_details' internal per-candidate review fetches aren't
@@ -72,6 +89,7 @@ from app.agent.nodes.ask_user import ask_user, generate_clarifying_question
 from app.agent.nodes.budget_exceeded import budget_exceeded
 from app.agent.nodes.check_missing_info import check_missing_info
 from app.agent.nodes.enforce_tool_budget import check_tool_budget, is_within_budget
+from app.agent.nodes.fetch_calendar_freebusy import fetch_calendar_freebusy
 from app.agent.nodes.fetch_place_details import fetch_place_details
 from app.agent.nodes.fetch_weather_forecast import fetch_weather_forecast
 from app.agent.nodes.generate_explanation import generate_explanation
@@ -116,6 +134,8 @@ _POST_GEOCODE_BUDGET_GATE = {
     "route": "check_budget_route",
     "weather": "check_budget_weather",
 }
+
+
 
 
 def _route_after_geocode(state: AgentState) -> str:
@@ -167,6 +187,8 @@ def build_graph():
     builder.add_node("generate_route_candidates", generate_route_candidates)
     builder.add_node("check_budget_weather", check_tool_budget)
     builder.add_node("fetch_weather_forecast", fetch_weather_forecast)
+    builder.add_node("check_budget_calendar_freebusy", check_tool_budget)
+    builder.add_node("fetch_calendar_freebusy", fetch_calendar_freebusy)
     builder.add_node("score_recommendations", score_recommendations)
     builder.add_node("generate_explanation", generate_explanation)
 
@@ -242,7 +264,13 @@ def build_graph():
         _budget_gate("fetch_weather_forecast"),
         {"fetch_weather_forecast": "fetch_weather_forecast", "budget_exceeded": "budget_exceeded"},
     )
-    builder.add_edge("fetch_weather_forecast", "score_recommendations")
+    builder.add_edge("fetch_weather_forecast", "check_budget_calendar_freebusy")
+    builder.add_conditional_edges(
+        "check_budget_calendar_freebusy",
+        _budget_gate("fetch_calendar_freebusy"),
+        {"fetch_calendar_freebusy": "fetch_calendar_freebusy", "budget_exceeded": "budget_exceeded"},
+    )
+    builder.add_edge("fetch_calendar_freebusy", "score_recommendations")
 
     builder.add_edge("score_recommendations", "generate_explanation")
 

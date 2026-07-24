@@ -18,10 +18,11 @@ app.agent.graph's own namespace BEFORE calling build_graph() (fresh, not
 the cached get_graph()) substitutes a fake for that node inside the graph
 that gets compiled. That's what _build_test_graph does below.
 
-Only the nodes that need a real API key are faked this way: understand_request,
-load_preferences, generate_clarifying_question, geocode_location,
-search_places, fetch_place_details, generate_route_candidates,
-fetch_weather_forecast, generate_explanation. Everything else
+Only the nodes that need a real API key (or, as of M8.4, a real Firestore
+read) are faked this way: understand_request, load_preferences,
+generate_clarifying_question, geocode_location, search_places,
+fetch_place_details, generate_route_candidates, fetch_weather_forecast,
+fetch_calendar_freebusy, generate_explanation. Everything else
 (check_missing_info, ask_user, the five check_tool_budget instances,
 handle_provider_error, score_recommendations, budget_exceeded, and every
 conditional-edge routing function) is the REAL implementation -- these
@@ -325,6 +326,13 @@ async def test_weather_flow_fetches_and_scores_forecast(monkeypatch):
         }
     )
     explain = _FakeNode(_explanations_from_scores)
+    # M8.4: fetch_calendar_freebusy now always sits between
+    # fetch_weather_forecast and score_recommendations -- faked here like
+    # every other node that would otherwise need real external access
+    # (Firestore, in this one's case). {} mirrors its real no-op return
+    # for a user with no calendar connected, the common case this test is
+    # meant to represent.
+    freebusy = _FakeNode({})
 
     graph = _build_test_graph(
         monkeypatch,
@@ -332,6 +340,7 @@ async def test_weather_flow_fetches_and_scores_forecast(monkeypatch):
         load_preferences=load_prefs,
         geocode_location=geocode,
         fetch_weather_forecast=forecast,
+        fetch_calendar_freebusy=freebusy,
         generate_explanation=explain,
     )
     config = _config("weather-session")
@@ -348,7 +357,8 @@ async def test_weather_flow_fetches_and_scores_forecast(monkeypatch):
     # something was returned.
     assert result["scored_results"][0].item.start_time == "2026-07-24T14:00:00Z"
     assert set(result["explanations"]) == {"2026-07-24T06:00:00Z", "2026-07-24T14:00:00Z"}
-    assert result["tool_call_count"] == 2  # geocode + fetch_weather_forecast, each gated
+    # geocode + fetch_weather_forecast + fetch_calendar_freebusy, each gated
+    assert result["tool_call_count"] == 3
 
 
 # ---- tool budget: short-circuits before a second gated call ----
@@ -521,6 +531,13 @@ async def test_weather_pipeline_error_degrades_to_honest_message(monkeypatch):
         }
     )
     explain = _FakeNode(_explanations_from_scores)
+    # Faked for the same reason as the happy-path test above -- this node
+    # is always reached now (fetch_calendar_freebusy no-ops for real on an
+    # empty forecast without touching Firestore, but the graph-test
+    # convention here is to fake every node that COULD need real external
+    # access, not rely on a particular test's data happening to
+    # short-circuit it internally).
+    freebusy = _FakeNode({})
 
     graph = _build_test_graph(
         monkeypatch,
@@ -528,6 +545,7 @@ async def test_weather_pipeline_error_degrades_to_honest_message(monkeypatch):
         load_preferences=load_prefs,
         geocode_location=geocode,
         fetch_weather_forecast=forecast,
+        fetch_calendar_freebusy=freebusy,
         generate_explanation=explain,
     )
     config = _config("weather-degrade-session")

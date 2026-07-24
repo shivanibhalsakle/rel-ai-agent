@@ -29,6 +29,8 @@ EXPECTED_NODES = {
     "generate_route_candidates",
     "check_budget_weather",
     "fetch_weather_forecast",
+    "check_budget_calendar_freebusy",
+    "fetch_calendar_freebusy",
     "score_recommendations",
     "generate_explanation",
 }
