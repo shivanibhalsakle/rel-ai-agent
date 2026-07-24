@@ -55,6 +55,12 @@ export default function HomePage() {
         <div className="flex flex-col items-center gap-3">
           <p className="text-slate-600">Signed in as {user.email}</p>
           <Link
+            href="/chat"
+            className="rounded-md bg-slate-900 px-4 py-2 text-white hover:bg-slate-700"
+          >
+            Open chat
+          </Link>
+          <Link
             href="/onboarding"
             className="rounded-md bg-slate-900 px-4 py-2 text-white hover:bg-slate-700"
           >
