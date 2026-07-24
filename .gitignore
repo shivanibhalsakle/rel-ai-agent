@@ -4,6 +4,7 @@ frontend/.next/
 frontend/out/
 frontend/.env*.local
 frontend/.vercel
+frontend/*.tsbuildinfo
 
 # Python / FastAPI
 backend/__pycache__/

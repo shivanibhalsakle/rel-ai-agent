@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { ChatResponse, Recommendation, sendChatMessage } from "@/lib/chat";
+import { RecommendationList } from "@/components/recommendation-cards/RecommendationList";
 
 interface ThreadMessage {
   id: string;
@@ -98,22 +99,12 @@ export default function ChatPage() {
               }
             >
               <p>{m.text}</p>
-              {/* Minimal list rendering for now -- the real recommendation
-                  card component is M5.2's job. */}
-              {m.recommendations && (
-                <ol className="mt-2 space-y-1">
-                  {m.recommendations.map((r) => (
-                    <li key={r.placeId} className="border-t border-slate-300 pt-1 first:border-t-0 first:pt-0">
-                      <span className="font-medium">
-                        {r.rank}. {r.name}
-                      </span>{" "}
-                      <span className="text-slate-500">({r.score}/100)</span>
-                      {r.explanation && <p className="text-slate-600">{r.explanation}</p>}
-                    </li>
-                  ))}
-                </ol>
-              )}
             </div>
+            {m.recommendations && (
+              <div className="mt-2 text-left">
+                <RecommendationList recommendations={m.recommendations} />
+              </div>
+            )}
           </div>
         ))}
       </div>
