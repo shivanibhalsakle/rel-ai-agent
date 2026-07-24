@@ -51,6 +51,20 @@ class Recommendation(CamelModel):
     # a bad marker.
     lat: float | None = None
     lng: float | None = None
+    # Added for M6.7 (route map overlay + weather timeline). Both None for
+    # fitness/workspace results -- neither concept applies to a PlaceCandidate.
+    # polyline: RouteCandidate's encoded path (via app.scoring.base.item_polyline()),
+    # None for everything else. The frontend draws this as a
+    # google.maps.Polyline instead of a pin, since a route has no single
+    # point to put a marker on.
+    polyline: str | None = None
+    # start_time: HourlyForecast's raw ISO 8601 UTC start_time, None for
+    # everything else. `name` is already the human-formatted version of
+    # this (e.g. "02:00 PM UTC", via item_display_name()) for display in
+    # a card; this raw value is what the frontend's weather timeline needs
+    # to sort/plot chronologically, which a formatted string can't do
+    # reliably.
+    start_time: str | None = None
 
 
 class ChatResponse(CamelModel):

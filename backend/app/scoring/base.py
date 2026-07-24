@@ -138,6 +138,19 @@ def _format_hour_utc(start_time_iso: str) -> str:
         return start_time_iso
 
 
+def item_polyline(item) -> str | None:
+    """A route's encoded polyline, if the item has one -- only
+    RouteCandidate does (via its wrapped RouteResult.encoded_polyline);
+    PlaceCandidate and HourlyForecast have no route geometry at all, so
+    this is None for them. Added for M6.7 so the /v1/chat response layer
+    can tell the frontend which recommendations to draw as a path
+    (RecommendationMap's Polyline overlay) rather than a pin -- a route
+    result has no single point (see Recommendation.lat/lng's own comment,
+    M6.4), a path is the honest shape for it."""
+    route = getattr(item, "route", None)
+    return getattr(route, "encoded_polyline", None)
+
+
 def item_display_name(item) -> str:
     """A human-readable label for a scored item, regardless of domain --
     PlaceCandidate has `name`, RouteCandidate has `label`, HourlyForecast

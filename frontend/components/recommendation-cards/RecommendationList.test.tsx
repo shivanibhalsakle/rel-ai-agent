@@ -13,6 +13,8 @@ function makeRecommendation(overrides: Partial<Recommendation> = {}): Recommenda
     explanation: null,
     lat: 40.7,
     lng: -73.9,
+    polyline: null,
+    startTime: null,
     ...overrides,
   };
 }

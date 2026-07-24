@@ -23,6 +23,7 @@ from app.main import app
 from app.scoring.base import ScoreComponent, to_scored_result
 from app.providers.places_provider import PlaceCandidate
 from app.providers.route_provider import RouteResult
+from app.providers.weather_provider import HourlyForecast
 from app.scoring.route_scoring import RouteCandidate
 
 
@@ -193,6 +194,9 @@ def test_completed_response_includes_ranked_recommendations(client, monkeypatch)
     assert body["recommendations"][0]["scoreBreakdown"] == {"rating": 0.9}
     assert body["recommendations"][0]["lat"] == 1.0
     assert body["recommendations"][0]["lng"] == 1.0
+    # M6.7: neither field applies to a PlaceCandidate.
+    assert body["recommendations"][0]["polyline"] is None
+    assert body["recommendations"][0]["startTime"] is None
 
 
 def test_route_result_has_null_lat_lng_not_a_crash(client, monkeypatch):
@@ -219,6 +223,43 @@ def test_route_result_has_null_lat_lng_not_a_crash(client, monkeypatch):
     assert body["recommendations"][0]["name"] == "Riverside Loop"
     assert body["recommendations"][0]["lat"] is None
     assert body["recommendations"][0]["lng"] is None
+    # M6.7: RouteCandidate DOES have a polyline (it's a path) -- must come
+    # through so the frontend can draw it, and has no start_time (that's
+    # HourlyForecast-only).
+    assert body["recommendations"][0]["polyline"] == "enc"
+    assert body["recommendations"][0]["startTime"] is None
+
+
+def test_weather_result_has_start_time_and_no_polyline(client, monkeypatch):
+    forecast = HourlyForecast(
+        start_time="2026-07-24T14:00:00Z",
+        is_daytime=True,
+        condition="Clear",
+        condition_type="CLEAR",
+        temperature_degrees=18.0,
+        temperature_unit="CELSIUS",
+    )
+    component = ScoreComponent(factor="temperature", score=1.0, weight=3.0, detail="18°C")
+    scored = to_scored_result(item=forecast, components=[component])
+    fake = FakeGraph(
+        result={
+            "intent": "weather",
+            "scored_results": [scored],
+            "explanations": {"2026-07-24T14:00:00Z": "Pleasant and dry."},
+        }
+    )
+    monkeypatch.setattr(chat_module, "get_graph", lambda: fake)
+
+    response = client.post("/v1/chat", json={"message": "best time to run today"})
+
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["recommendations"][0]["placeId"] == "2026-07-24T14:00:00Z"
+    assert body["recommendations"][0]["name"] == "02:00 PM UTC"
+    assert body["recommendations"][0]["lat"] is None
+    assert body["recommendations"][0]["lng"] is None
+    assert body["recommendations"][0]["polyline"] is None
+    assert body["recommendations"][0]["startTime"] == "2026-07-24T14:00:00Z"
 
 
 # ---- /v1/chat/{sessionId}/resume ----

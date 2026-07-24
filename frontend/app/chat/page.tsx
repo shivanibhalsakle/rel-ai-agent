@@ -7,6 +7,7 @@ import { ChatApiError, ChatResponse, sendChatMessage } from "@/lib/chat";
 import { ThreadMessage, clearThread, loadThread, saveThread } from "@/lib/chat-storage";
 import { RecommendationList } from "@/components/recommendation-cards/RecommendationList";
 import { RecommendationMap } from "@/components/map/RecommendationMap";
+import { WeatherTimeline } from "@/components/weather/WeatherTimeline";
 
 export default function ChatPage() {
   const { user, loading, getIdToken } = useAuth();
@@ -63,6 +64,7 @@ export default function ChatPage() {
         role: "assistant",
         text,
         recommendations: response.recommendations.length ? response.recommendations : undefined,
+        intent: response.intent,
       },
     ]);
   }
@@ -134,7 +136,18 @@ export default function ChatPage() {
             >
               <p>{m.text}</p>
             </div>
-            {m.recommendations && (
+            {m.recommendations && m.intent === "weather" && (
+              // Weather gets its own chronological view instead of
+              // RecommendationList/RecommendationMap (M6.7) -- neither a
+              // rank-first card list nor a map fits an hourly forecast
+              // (there's no location to pin; see Recommendation.lat/lng's
+              // comment), and "which hour is #1" matters less here than
+              // "how does the day look."
+              <div className="mt-2 text-left">
+                <WeatherTimeline recommendations={m.recommendations} />
+              </div>
+            )}
+            {m.recommendations && m.intent !== "weather" && (
               <div className="mt-2 space-y-2 text-left">
                 <RecommendationList recommendations={m.recommendations} />
                 <RecommendationMap recommendations={m.recommendations} />

@@ -27,7 +27,7 @@ from app.agent.graph import get_graph
 from app.agent.state import new_agent_state
 from app.auth.dependencies import get_current_user
 from app.schemas.chat import ChatRequest, ChatResponse, Recommendation, ResumeRequest
-from app.scoring.base import item_display_name, item_id
+from app.scoring.base import item_display_name, item_id, item_polyline
 
 router = APIRouter()
 
@@ -86,6 +86,10 @@ def _build_response(session_id: str, result: dict) -> ChatResponse:
             # not a bug.
             lat=getattr(scored.item, "lat", None),
             lng=getattr(scored.item, "lng", None),
+            # M6.7: polyline is RouteCandidate-only, start_time is
+            # HourlyForecast-only -- both None for fitness/workspace results.
+            polyline=item_polyline(scored.item),
+            start_time=getattr(scored.item, "start_time", None),
         )
         for i, scored in enumerate(result.get("scored_results") or [])
     ]

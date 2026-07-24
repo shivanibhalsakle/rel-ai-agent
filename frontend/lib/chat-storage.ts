@@ -22,6 +22,11 @@ export interface ThreadMessage {
   role: "user" | "assistant";
   text: string;
   recommendations?: Recommendation[];
+  // Added for M6.7 -- lets the chat page pick the right visualization
+  // (RecommendationMap for fitness/workspace/route, WeatherTimeline for
+  // weather) per message without re-deriving it from the recommendations
+  // themselves, which don't self-describe which domain they came from.
+  intent?: string | null;
 }
 
 export interface StoredThread {

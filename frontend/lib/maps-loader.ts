@@ -47,7 +47,13 @@ export function loadGoogleMaps(): Promise<void> {
     // snippet.) The classic loader is simpler and sufficient here: it
     // populates google.maps.Map / Marker / LatLngBounds directly by the
     // time `onload` fires, no importLibrary call needed.
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+    // libraries=geometry (M6.7): needed for google.maps.geometry.encoding.decodePath,
+    // which RecommendationMap uses to turn a route's encoded polyline back
+    // into a drawable path. Unlike loading=async (see the comment above),
+    // the libraries param has always worked with the classic loader --
+    // it's a separate, older mechanism, not part of the dynamic-import
+    // machinery that caused the two bugs documented above.
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=geometry`;
     script.async = true;
     script.onload = () => resolve();
     script.onerror = () => {

@@ -22,6 +22,16 @@ export interface Recommendation {
   // (M5.5), so this degrades to "no pin" rather than a broken marker.
   lat: number | null;
   lng: number | null;
+  // Added for M6.7 (route map overlay + weather timeline). polyline is
+  // RouteCandidate-only (an encoded path, drawn via RecommendationMap's
+  // Polyline overlay instead of a pin -- see lat/lng's comment above for
+  // why a route has no single point). startTime is HourlyForecast-only
+  // (raw ISO 8601 UTC, e.g. "2026-07-24T14:00:00Z") -- `name` is already
+  // a human-formatted version of this for display in a card, but
+  // WeatherTimeline needs the raw value to sort/plot chronologically.
+  // Both None for fitness/workspace results.
+  polyline: string | null;
+  startTime: string | null;
 }
 
 export interface ChatResponse {
