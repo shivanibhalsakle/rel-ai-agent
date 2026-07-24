@@ -136,6 +136,34 @@ async def test_no_location_mentioned_omits_location_query_key_entirely():
     assert "location_query" not in update
 
 
+async def test_route_distance_and_duration_targets_are_extracted():
+    state = new_agent_state(user_id="u1", session_id="s1")
+    state["messages"] = [HumanMessage(content="find me a 3 mile route near Prospect Park")]
+    stub = _StubLLM(
+        UnderstoodRequest(
+            intent="route",
+            location="Prospect Park",
+            target_distance_meters=4828.0,
+        )
+    )
+
+    update = await understand_request(state, llm=stub)
+
+    assert update["extracted_preferences"] == {"target_distance_meters": 4828.0}
+
+
+async def test_route_with_no_stated_target_extracts_neither_field():
+    state = new_agent_state(user_id="u1", session_id="s1")
+    state["messages"] = [HumanMessage(content="find me a nice route to run")]
+    stub = _StubLLM(UnderstoodRequest(intent="route"))
+
+    update = await understand_request(state, llm=stub)
+
+    assert update["extracted_preferences"] == {}
+    assert "target_distance_meters" not in update["extracted_preferences"]
+    assert "target_duration_seconds" not in update["extracted_preferences"]
+
+
 async def test_unclear_intent_still_returns_a_valid_update():
     state = new_agent_state(user_id="u1", session_id="s1")
     state["messages"] = [HumanMessage(content="hmm")]

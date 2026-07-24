@@ -44,6 +44,13 @@ Leave a field unset if the user did not mention it — never guess, infer, \
 or fill in a plausible default. A user who says "find me a gym" has NOT \
 stated a budget, travel time, or rating threshold, even if those would be \
 reasonable assumptions to make later.
+
+4. For a route request, if the user states a target distance or duration, \
+extract it converted to the field's stated unit: `target_distance_meters` \
+in meters (e.g. "3 miles" -> 4828.0, "5k" -> 5000.0), `target_duration_seconds` \
+in seconds (e.g. "30 minutes" -> 1800, "an hour" -> 3600). Leave both unset \
+if the user didn't state a distance or duration -- "find me a nice route" \
+states neither, and a route request is still valid with nothing here.
 """
 
 
@@ -59,6 +66,13 @@ class UnderstoodRequest(BaseModel):
     wants_wifi: bool | None = None
     wants_outlets: bool | None = None
     wants_quiet: bool | None = None
+    # Route-specific, added M6.1. Deliberately optional -- route_scoring
+    # (M3.4) and generate_route_candidates (M6.2) both already treat "no
+    # target stated" as a valid, scoreable request, not a missing field to
+    # ask about (see check_missing_info: route has no required fields
+    # beyond location).
+    target_distance_meters: float | None = None
+    target_duration_seconds: float | None = None
 
 
 _CONTEXT_TURN_LIMIT = 6
