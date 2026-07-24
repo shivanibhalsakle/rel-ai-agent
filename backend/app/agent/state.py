@@ -92,6 +92,15 @@ class AgentState(TypedDict):
 
     # scoring/output
     scored_results: list[ScoredResult]
+    # explanations: added beyond the design doc's original listing. The
+    # design doc's node table describes generate_explanation producing "a
+    # natural-language explanation per item" -- plural -- but AgentState's
+    # original `explanation: str | None` is singular, which only fits one
+    # case: a direct conversational reply for "general" intent (no search,
+    # nothing to attach a per-item explanation to). Per-recommendation
+    # sentences live here instead, keyed by place_id, so M4.10 can zip them
+    # with scored_results when building the API response.
+    explanations: dict[str, str]
     explanation: str | None
 
     # control
@@ -134,6 +143,7 @@ def new_agent_state(
         weather_data=[],
         calendar_freebusy=None,
         scored_results=[],
+        explanations={},
         explanation=None,
         pending_approval=None,
         tool_call_count=0,
