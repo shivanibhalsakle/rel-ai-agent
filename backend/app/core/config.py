@@ -24,6 +24,19 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     google_maps_api_key: str | None = None
 
+    # Milestone 8 — Google Calendar OAuth (phase 2, opt-in per user). Separate
+    # client id/secret from google_maps_api_key on purpose: this is a distinct
+    # OAuth 2.0 client (Web application type) with its own consent screen and
+    # scopes, not an API key. Never sent to the frontend -- the redirect URI
+    # points back at this backend, which exchanges the auth code server-side
+    # and stores only the resulting refresh/access tokens (see
+    # db/repositories/calendar_repository.py, M8.3).
+    google_calendar_client_id: str | None = None
+    google_calendar_client_secret: str | None = None
+    # Must exactly match an "Authorized redirect URI" registered on the OAuth
+    # client in Cloud Console -- Google rejects the exchange otherwise.
+    google_calendar_redirect_uri: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
