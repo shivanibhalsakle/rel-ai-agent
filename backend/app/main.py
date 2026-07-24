@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.calendar import router as calendar_router
 from app.api.chat import router as chat_router
 from app.api.debug_providers import router as debug_providers_router
 from app.api.feedback import router as feedback_router
@@ -30,3 +31,4 @@ app.include_router(preferences_router, prefix="/v1", tags=["preferences"])
 app.include_router(debug_providers_router, prefix="/v1", tags=["debug"])
 app.include_router(chat_router, prefix="/v1", tags=["chat"])
 app.include_router(feedback_router, prefix="/v1", tags=["feedback"])
+app.include_router(calendar_router, prefix="/v1", tags=["calendar"])

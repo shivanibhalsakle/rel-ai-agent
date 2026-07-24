@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     # Must exactly match an "Authorized redirect URI" registered on the OAuth
     # client in Cloud Console -- Google rejects the exchange otherwise.
     google_calendar_redirect_uri: str | None = None
+    # Signs the `state` param carried through the connect -> Google ->
+    # callback redirect (see app/core/oauth_state.py) -- the callback is a
+    # plain browser GET with no Authorization header, so this is what ties
+    # it back to the right user_id without letting that be forged. Generate
+    # with `python -c "import secrets; print(secrets.token_hex(32))"`.
+    oauth_state_secret_key: str | None = None
+    # Where the OAuth callback redirects the browser back to once the
+    # connect/disconnect flow finishes (frontend settings page).
+    frontend_base_url: str = "http://localhost:3000"
 
 
 @lru_cache
