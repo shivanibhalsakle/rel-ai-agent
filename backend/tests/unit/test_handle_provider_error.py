@@ -1,4 +1,4 @@
-from app.agent.nodes.handle_provider_error import handle_provider_error, route_after_error
+from app.agent.nodes.handle_provider_error import handle_provider_error, has_error, route_after_error
 from app.agent.state import new_agent_state
 
 
@@ -69,3 +69,15 @@ def test_route_after_error_only_matches_the_specific_failed_node():
     state = _with_error("search_places", retryable=False)
 
     assert route_after_error(state, failed_node="geocode_location") == "retry"
+
+
+def test_has_error_true_when_errors_present():
+    state = _with_error("geocode_location", retryable=False)
+
+    assert has_error(state) is True
+
+
+def test_has_error_false_when_no_errors():
+    state = new_agent_state(user_id="u1", session_id="s1")
+
+    assert has_error(state) is False

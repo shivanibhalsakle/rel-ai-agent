@@ -18,6 +18,12 @@ MAX_RETRIES_PER_NODE = 1
 # ^ design doc: "one automatic retry per tool node on transient failure"
 
 
+def has_error(state: AgentState) -> bool:
+    """Routing predicate used right after a tool node to decide whether to
+    continue the happy path or divert to handle_provider_error."""
+    return bool(state.get("errors"))
+
+
 def handle_provider_error(state: AgentState) -> dict:
     """If the latest error is retryable and hasn't been retried yet for its
     node, removes it from `errors` (rather than leaving it as a standing

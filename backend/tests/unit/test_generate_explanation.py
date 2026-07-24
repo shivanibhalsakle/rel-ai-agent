@@ -77,6 +77,19 @@ async def test_only_top_n_results_are_sent_to_the_llm():
     assert sent.count("- p") == 5
 
 
+async def test_unresolved_error_with_no_results_produces_an_honest_message():
+    state = new_agent_state(user_id="u1", session_id="s1")
+    state["intent"] = "fitness"
+    state["scored_results"] = []
+    state["errors"] = [{"node": "geocode_location", "message": 'Could not find a location for "asdkfjh".', "retryable": False}]
+    stub = _StubLLM()
+
+    update = await generate_explanation(state, llm=stub)
+
+    assert update == {"explanation": 'I couldn\'t complete that search: Could not find a location for "asdkfjh".'}
+    assert stub.structured_call is None
+
+
 async def test_fewer_explanations_than_items_does_not_crash():
     state = new_agent_state(user_id="u1", session_id="s1")
     state["intent"] = "fitness"

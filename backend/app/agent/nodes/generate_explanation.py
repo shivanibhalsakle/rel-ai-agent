@@ -60,6 +60,15 @@ async def generate_explanation(state: AgentState, llm: LLMProvider | None = None
 
     top_results = state.get("scored_results", [])[:TOP_N_EXPLANATIONS]
     if not top_results:
+        # Reached with nothing to explain and an unresolved error means the
+        # search pipeline degraded (geocoding/search failed and gave up
+        # retrying, see handle_provider_error) rather than legitimately
+        # finding zero results -- say so honestly instead of silently
+        # returning nothing, which is what a graph wiring bug looks like
+        # from the user's side.
+        errors = state.get("errors", [])
+        if errors:
+            return {"explanation": f"I couldn't complete that search: {errors[-1]['message']}"}
         return {"explanations": {}}
 
     item_descriptions = []
