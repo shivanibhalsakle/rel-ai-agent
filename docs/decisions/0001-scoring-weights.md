@@ -60,9 +60,19 @@ Same rating/review-count/distance/affordability treatment as fitness_scoring
 | Weather comfort | 2.0 | Optional, supplied by `weather_scoring` for the route's time window — kept as a separate module rather than duplicated, since "how comfortable is this weather" is identical logic to the weather-aware-scheduling flow (Step 3.5). |
 
 Park coverage and road exposure aren't things RouteProvider returns — they're
-heuristic ratios a future route-generation step (Milestone 4) estimates from
-waypoint biasing and road classification. A candidate with no estimate defaults
-to 0.0 (no known coverage / no known exposure) rather than being excluded.
+heuristic ratios Milestone 6's route-generation step estimates from waypoint
+biasing. The two are handled differently, revised once M6 actually built that
+step and confronted what data is real: park coverage defaults to 0.0 and is
+always shown, because M6's candidate generation always produces a genuine,
+determined value for it (a candidate really was or wasn't routed through a
+known park). Road exposure has no real data source at all yet (Routes API's
+field mask has no road-classification data) — its ratio is `float | None`,
+and the component is skipped entirely when `None` rather than defaulted to
+0.0 and displayed, since showing "100% estimated non-major roads" with zero
+actual signal behind it would be fabricating a favorable estimate, not
+just omitting an unknown one. Originally this doc said both default to 0.0
+and are always shown — that was written before M6 existed to check the claim
+against, and turned out to be wrong for road exposure specifically.
 
 ## weather_scoring
 

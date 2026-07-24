@@ -16,7 +16,7 @@ def _candidate(
     distance_meters: float,
     duration_seconds: float,
     park_coverage_ratio: float = 0.0,
-    major_road_exposure_ratio: float = 0.0,
+    major_road_exposure_ratio: float | None = None,
 ) -> RouteCandidate:
     return RouteCandidate(
         candidate_id=candidate_id,
@@ -79,6 +79,30 @@ def test_no_targets_or_weather_data_still_scores_on_route_quality_alone():
     assert len(results) == 1
     factors = {c.factor for c in results[0].components}
     assert factors == {"park_coverage", "road_exposure"}
+
+
+def test_road_exposure_omitted_when_no_data():
+    prefs = UserPreferences()
+    # major_road_exposure_ratio defaults to None now -- no data source for
+    # it exists yet (see route_scoring.py's module docstring). The
+    # component must be skipped entirely, not shown with a fabricated 0.0
+    # ("100% non-major roads") that has zero real signal behind it.
+    candidate = _candidate("solo", 5000, 1800, park_coverage_ratio=0.5)
+
+    results = score_and_rank([candidate], prefs)
+
+    factors = {c.factor for c in results[0].components}
+    assert factors == {"park_coverage"}
+
+
+def test_road_exposure_shown_when_data_is_provided():
+    prefs = UserPreferences()
+    candidate = _candidate("solo", 5000, 1800, major_road_exposure_ratio=0.2)
+
+    results = score_and_rank([candidate], prefs)
+
+    factors = {c.factor for c in results[0].components}
+    assert "road_exposure" in factors
 
 
 def test_road_exposure_detail_never_claims_safety():

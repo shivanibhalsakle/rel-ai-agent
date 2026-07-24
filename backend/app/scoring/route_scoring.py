@@ -14,13 +14,24 @@ rank them.
 
 Road exposure and park coverage aren't things RouteProvider gives us
 directly (Google's Routes API doesn't expose road-classification or
-park-overlap data) — they're heuristic ratios the M4 route-generation step
-will estimate and attach to each candidate. This module just consumes
-whatever ratios it's given; a candidate with no data defaults to 0.0 (no
-known park coverage, no known major-road exposure) rather than being
-excluded, since "unknown" isn't the same as "bad" but we also can't invent
-a favorable estimate. Documented simplification, matches the project's
-"mark unavailable, don't fabricate" principle.
+park-overlap data) — they're heuristic ratios the M6 route-generation step
+(app/agent/nodes/generate_route_candidates.py) estimates and attaches to
+each candidate.
+
+The two factors are handled differently on purpose. park_coverage_ratio
+defaults to 0.0 and is always shown, because M6's candidate generation
+always produces a real, determined value for it (a candidate really was
+or wasn't routed through a known park) -- 0.0 there means "confirmed not
+near a park," not "unknown." major_road_exposure_ratio is Optional and
+its component is SKIPPED (not shown with a default) when None, because
+there is currently no real data source for it at all (Routes API's field
+mask has no road-classification data) -- defaulting it to 0.0 and
+displaying it anyway would have every candidate's explanation claim "100%
+estimated non-major roads" with zero actual signal behind that number,
+which is fabricating a favorable estimate, not just omitting an unknown
+one. This mirrors how distance_target/duration_target are already
+skipped rather than scored against a made-up target when the user didn't
+give one.
 
 Road-exposure detail text deliberately never says "safe" — the design doc's
 risk log calls this out explicitly: "'safe route' claims are a legal and
@@ -55,7 +66,9 @@ class RouteCandidate(BaseModel):
     candidate_id: str
     route: RouteResult
     park_coverage_ratio: float = Field(default=0.0, ge=0, le=1)
-    major_road_exposure_ratio: float = Field(default=0.0, ge=0, le=1)
+    # None means "no data source for this yet" -- see module docstring.
+    # Distinct from 0.0, which means "confirmed low/no major-road exposure."
+    major_road_exposure_ratio: float | None = Field(default=None, ge=0, le=1)
     label: str | None = None
 
 
@@ -128,18 +141,19 @@ def score_and_rank(
             )
         )
 
-        road_score = clamp01(1 - candidate.major_road_exposure_ratio)
-        components.append(
-            ScoreComponent(
-                factor="road_exposure",
-                score=road_score,
-                weight=ROAD_EXPOSURE_WEIGHT,
-                detail=(
-                    f"Lower-traffic based on available data "
-                    f"({road_score * 100:.0f}% estimated non-major roads) — not a safety guarantee"
-                ),
+        if candidate.major_road_exposure_ratio is not None:
+            road_score = clamp01(1 - candidate.major_road_exposure_ratio)
+            components.append(
+                ScoreComponent(
+                    factor="road_exposure",
+                    score=road_score,
+                    weight=ROAD_EXPOSURE_WEIGHT,
+                    detail=(
+                        f"Lower-traffic based on available data "
+                        f"({road_score * 100:.0f}% estimated non-major roads) — not a safety guarantee"
+                    ),
+                )
             )
-        )
 
         comfort = weather_comfort.get(candidate.candidate_id)
         if comfort is not None:
