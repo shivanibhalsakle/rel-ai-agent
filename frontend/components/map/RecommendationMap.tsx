@@ -21,6 +21,15 @@ export function RecommendationMap({ recommendations }: { recommendations: Recomm
   const markersRef = useRef<google.maps.Marker[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // Defends against exactly the failure hit in testing: a thread
+  // persisted to localStorage (M5.3) BEFORE lat/lng existed on
+  // Recommendation still has old entries with those fields simply
+  // missing, which threw "not a LatLng: in property lat: not a number"
+  // straight out of the Marker/LatLngBounds constructors. Filtering here
+  // means a page that's carrying stale pre-M5.5 history degrades to
+  // "fewer pins" instead of a broken map for the whole message.
+  const plottable = recommendations.filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng));
+
   useEffect(() => {
     let cancelled = false;
 
@@ -28,7 +37,7 @@ export function RecommendationMap({ recommendations }: { recommendations: Recomm
       .then(() => {
         if (cancelled || !mapDivRef.current || mapRef.current) return;
         mapRef.current = new google.maps.Map(mapDivRef.current, {
-          center: { lat: recommendations[0]?.lat ?? 0, lng: recommendations[0]?.lng ?? 0 },
+          center: { lat: plottable[0]?.lat ?? 0, lng: plottable[0]?.lng ?? 0 },
           zoom: DEFAULT_ZOOM,
         });
         renderMarkers();
@@ -58,7 +67,7 @@ export function RecommendationMap({ recommendations }: { recommendations: Recomm
     if (!map) return;
 
     markersRef.current.forEach((marker) => marker.setMap(null));
-    markersRef.current = recommendations.map(
+    markersRef.current = plottable.map(
       (r) =>
         new google.maps.Marker({
           map,
@@ -68,14 +77,14 @@ export function RecommendationMap({ recommendations }: { recommendations: Recomm
         })
     );
 
-    if (recommendations.length > 0) {
+    if (plottable.length > 0) {
       const bounds = new google.maps.LatLngBounds();
-      recommendations.forEach((r) => bounds.extend({ lat: r.lat, lng: r.lng }));
+      plottable.forEach((r) => bounds.extend({ lat: r.lat, lng: r.lng }));
       map.fitBounds(bounds);
     }
   }
 
-  if (recommendations.length === 0) return null;
+  if (plottable.length === 0) return null;
 
   if (error) {
     return <p className="text-sm text-slate-400">Map unavailable: {error}</p>;
