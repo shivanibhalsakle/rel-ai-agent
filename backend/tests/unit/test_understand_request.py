@@ -113,6 +113,29 @@ async def test_new_turn_overrides_same_field_from_earlier_turn():
     assert update["extracted_preferences"] == {"budget_max_usd": 40.0}
 
 
+async def test_location_is_returned_as_location_query_not_extracted_preferences():
+    state = new_agent_state(user_id="u1", session_id="s1")
+    state["messages"] = [HumanMessage(content="find me a gym near Union Square")]
+    stub = _StubLLM(UnderstoodRequest(intent="fitness", activities=["gym"], location="Union Square"))
+
+    update = await understand_request(state, llm=stub)
+
+    assert update["location_query"] == "Union Square"
+    assert "location" not in update["extracted_preferences"]
+
+
+async def test_no_location_mentioned_omits_location_query_key_entirely():
+    # Omitting the key (not setting it to None) matters: it means an
+    # already-resolved location from an earlier turn survives this update.
+    state = new_agent_state(user_id="u1", session_id="s1")
+    state["messages"] = [HumanMessage(content="find me a gym")]
+    stub = _StubLLM(UnderstoodRequest(intent="fitness", activities=["gym"]))
+
+    update = await understand_request(state, llm=stub)
+
+    assert "location_query" not in update
+
+
 async def test_unclear_intent_still_returns_a_valid_update():
     state = new_agent_state(user_id="u1", session_id="s1")
     state["messages"] = [HumanMessage(content="hmm")]

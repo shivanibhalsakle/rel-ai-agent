@@ -65,11 +65,27 @@ class AgentState(TypedDict):
     missing_fields: list[str]
 
     # resolved context
+    # location_query: added beyond the design doc's original listing. The
+    # design doc assumed a home location would already be on file from
+    # onboarding (users/{userId}.homeLocation), but M1 never actually built
+    # that capture (onboarding only stores UserPreferences, no home
+    # location) -- rather than retrofit onboarding, M4.5 captures location
+    # conversationally instead (the raw text understand_request extracts,
+    # e.g. "Union Square"), which geocode_location resolves into
+    # resolved_location. Arguably a better fit for a chat-first product
+    # anyway, per the design doc's own fallback framing ("ask for manual
+    # address/neighborhood entry").
+    location_query: str | None
     resolved_location: Location | None
     saved_preferences: UserPreferences | None
 
     # tool results (raw, provider-shaped)
     places_results: list[PlaceCandidate]
+    # workspace_amenities: added beyond the design doc's original listing.
+    # Output of fetch_place_details' selective review-mining (M4.5) --
+    # {place_id: {amenity: bool}}, in exactly the shape
+    # workspace_scoring.score_and_rank's `amenities` param expects (M3).
+    workspace_amenities: dict[str, dict[str, bool]]
     route_candidates: list[RouteCandidate]
     weather_data: list[HourlyForecast]
     calendar_freebusy: list[dict] | None
@@ -109,9 +125,11 @@ def new_agent_state(
         intent="unclear",
         extracted_preferences={},
         missing_fields=[],
+        location_query=None,
         resolved_location=None,
         saved_preferences=None,
         places_results=[],
+        workspace_amenities={},
         route_candidates=[],
         weather_data=[],
         calendar_freebusy=None,

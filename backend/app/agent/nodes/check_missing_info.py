@@ -26,6 +26,13 @@ _REQUIRED_FIELDS_BY_INTENT: dict[str, list[str]] = {
     "general": [],
 }
 
+# Every intent that eventually calls geocode_location needs somewhere to
+# search near. "location" isn't a UserPreferences field (see state.py's
+# location_query note — M1 never built home-location capture), so it's
+# checked separately from the preferences-backed fields above rather than
+# living in _REQUIRED_FIELDS_BY_INTENT.
+_LOCATION_REQUIRED_INTENTS = {"fitness", "workspace", "route", "weather"}
+
 
 def check_missing_info(state: AgentState) -> dict:
     intent = state["intent"]
@@ -38,5 +45,13 @@ def check_missing_info(state: AgentState) -> dict:
     preferences = state["saved_preferences"]
     required = _REQUIRED_FIELDS_BY_INTENT.get(intent, [])
 
+    # Ask about *what* before *where* -- "what are you looking for" reads
+    # more naturally as the first clarifying question than "where should I
+    # search," and ask_user only ever asks about missing_fields[0].
     missing = [field for field in required if not getattr(preferences, field, None)]
+
+    has_location = state.get("location_query") or state.get("resolved_location")
+    if intent in _LOCATION_REQUIRED_INTENTS and not has_location:
+        missing.append("location")
+
     return {"missing_fields": missing}

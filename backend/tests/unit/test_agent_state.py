@@ -10,6 +10,8 @@ def test_new_agent_state_sets_expected_defaults():
     assert state["messages"] == []
     assert state["missing_fields"] == []
     assert state["places_results"] == []
+    assert state["location_query"] is None
+    assert state["workspace_amenities"] == {}
     assert state["route_candidates"] == []
     assert state["weather_data"] == []
     assert state["scored_results"] == []

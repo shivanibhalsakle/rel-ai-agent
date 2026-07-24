@@ -19,6 +19,17 @@ SEARCH_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
 SEARCH_TEXT_URL = "https://places.googleapis.com/v1/places:searchText"
 CACHE_TTL_SECONDS = 60 * 60 * 24  # 1 day — ratings/hours drift slowly, but do drift
 
+# Place Details (New), reviews field only. This is Google's priciest Places
+# SKU (Enterprise + Atmosphere, ~$0.04/call per the rates checked during
+# Milestone 3's research) -- callers must never invoke get_reviews() for
+# every search result. See agent/nodes/fetch_place_details.py (M4.5) for
+# the actual selective-shortlist gating; this method itself has no
+# knowledge of "how many is too many," on purpose -- that policy belongs
+# to the caller, not the provider.
+DETAILS_URL = "https://places.googleapis.com/v1/places/{place_id}"
+REVIEWS_FIELD_MASK = "reviews.text.text"
+REVIEWS_CACHE_TTL_SECONDS = 60 * 60 * 24  # 1 day — reviews change slowly enough
+
 SEARCH_FIELD_MASK = ",".join(
     [
         "places.id",
@@ -32,6 +43,13 @@ SEARCH_FIELD_MASK = ",".join(
         "places.currentOpeningHours.openNow",
     ]
 )
+
+
+class ReviewText(BaseModel):
+    """Wrapper so a plain list[str] can go through get_or_fetch's
+    is_list/model_type caching mechanics, which require a BaseModel."""
+
+    text: str
 
 
 class PlaceCandidate(BaseModel):
@@ -133,6 +151,35 @@ class PlacesProvider:
             data = resp.json()
 
         return [self._to_candidate(p) for p in data.get("places", [])]
+
+    async def get_reviews(self, place_id: str) -> list[str]:
+        """Fetches up to a handful of review texts for one place. Real
+        money per call (see module-level comment) -- callers are
+        responsible for only calling this for a small, deliberately chosen
+        shortlist, never for every search result."""
+        result = await get_or_fetch(
+            provider="place_reviews",
+            params={"place_id": place_id},
+            ttl_seconds=REVIEWS_CACHE_TTL_SECONDS,
+            fetch_fn=lambda: self._fetch_reviews(place_id),
+            model_type=ReviewText,
+            is_list=True,
+        )
+        return [item.text for item in (result or [])]
+
+    async def _fetch_reviews(self, place_id: str) -> list[ReviewText]:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                DETAILS_URL.format(place_id=place_id), headers=self._headers(REVIEWS_FIELD_MASK)
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        return [
+            ReviewText(text=review["text"]["text"])
+            for review in data.get("reviews", [])
+            if review.get("text", {}).get("text")
+        ]
 
     @staticmethod
     def _to_candidate(place: dict) -> PlaceCandidate:

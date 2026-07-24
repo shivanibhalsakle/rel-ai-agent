@@ -34,7 +34,12 @@ weather, general, unclear.
 questions about the app itself)
    - unclear: you cannot tell what the user wants
 
-2. Extract ONLY the constraints the user's message explicitly states. \
+2. If the user mentions a specific place to search near (a neighborhood, \
+city, address, or landmark — e.g. "near Union Square", "in Brooklyn", \
+"downtown Austin"), extract it verbatim as `location`. Leave it unset if \
+no location was mentioned.
+
+3. Extract ONLY the constraints the user's message explicitly states. \
 Leave a field unset if the user did not mention it — never guess, infer, \
 or fill in a plausible default. A user who says "find me a gym" has NOT \
 stated a budget, travel time, or rating threshold, even if those would be \
@@ -44,6 +49,7 @@ reasonable assumptions to make later.
 
 class UnderstoodRequest(BaseModel):
     intent: Literal["fitness", "workspace", "route", "weather", "general", "unclear"]
+    location: str | None = None
     activities: list[str] = []
     budget_max_usd: float | None = None
     max_travel_minutes: int | None = None
@@ -101,7 +107,9 @@ async def understand_request(state: AgentState, llm: LLMProvider | None = None) 
         output_model=UnderstoodRequest,
     )
 
-    extracted = understood.model_dump(exclude={"intent"}, exclude_none=True)
+    # `location` is handled separately below (it becomes location_query,
+    # not a UserPreferences field), so it's excluded here along with intent.
+    extracted = understood.model_dump(exclude={"intent", "location"}, exclude_none=True)
     # An empty `activities` list means "nothing meaningfully extracted"
     # just as much as an unset field does elsewhere in this schema — drop
     # it too, so a bare [] doesn't get merged in and mistaken for an
@@ -115,7 +123,14 @@ async def understand_request(state: AgentState, llm: LLMProvider | None = None) 
     # extracted from the original message.
     merged = {**state.get("extracted_preferences", {}), **extracted}
 
-    return {
+    update: dict = {
         "intent": understood.intent,
         "extracted_preferences": merged,
     }
+    # Only set location_query when this turn actually mentioned one --
+    # omitting the key (rather than setting it to None) means LangGraph
+    # leaves whatever was already resolved from an earlier turn untouched,
+    # instead of erasing it every time understand_request runs again.
+    if understood.location:
+        update["location_query"] = understood.location
+    return update

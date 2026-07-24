@@ -39,6 +39,7 @@ _FIELD_DESCRIPTIONS = {
         "(cafe/coworking), a running or walking route, or weather-based scheduling advice"
     ),
     "activities": "what specific activity or type of fitness place they want (e.g. gym, yoga, running)",
+    "location": "what city, neighborhood, or address they'd like to search near",
 }
 
 
