@@ -11,9 +11,10 @@ until the milestones that populate them exist. Building the narrower shape
 now and widening it later would mean migrating whatever's already in the
 checkpointer, which is exactly the kind of churn this avoids.
 """
-from typing import Literal, TypedDict
+from typing import Annotated, Literal, TypedDict
 
 from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
 
 from app.providers.places_provider import PlaceCandidate
 from app.providers.weather_provider import HourlyForecast
@@ -47,7 +48,14 @@ class ProviderError(TypedDict):
 
 class AgentState(TypedDict):
     # conversation
-    messages: list[BaseMessage]
+    # Annotated with LangGraph's add_messages reducer: without it, a node
+    # returning {"messages": [new_msg]} would REPLACE the whole list
+    # (LangGraph's default merge behavior for a field with no reducer is
+    # last-write-wins), wiping prior turns. add_messages appends instead
+    # (and de-duplicates by message id), which is what every node in this
+    # graph assumes when it returns just the new message(s), not the full
+    # history.
+    messages: Annotated[list[BaseMessage], add_messages]
     user_id: str
     session_id: str
 

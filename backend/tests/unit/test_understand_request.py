@@ -65,7 +65,10 @@ async def test_empty_activities_list_is_dropped_not_kept_as_empty_list():
     assert "activities" not in update["extracted_preferences"]
 
 
-async def test_latest_human_message_is_used_even_with_prior_ai_turns():
+async def test_conversation_context_includes_prior_turns_for_follow_up_answers():
+    # A bare "under $60" is only interpretable with the preceding question
+    # as context -- the call to Claude needs to see it, not just the
+    # isolated latest message.
     state = new_agent_state(user_id="u1", session_id="s1")
     state["messages"] = [
         HumanMessage(content="find me a gym"),
@@ -76,7 +79,38 @@ async def test_latest_human_message_is_used_even_with_prior_ai_turns():
 
     await understand_request(state, llm=stub)
 
-    assert stub.last_call_kwargs["user_message"] == "under $60"
+    sent = stub.last_call_kwargs["user_message"]
+    assert "find me a gym" in sent
+    assert "What's your budget?" in sent
+    assert "under $60" in sent
+
+
+async def test_extracted_preferences_merge_across_turns_instead_of_replacing():
+    # First turn already extracted a budget; this turn's answer ("yoga")
+    # only fills in activities and must not wipe the earlier budget.
+    state = new_agent_state(user_id="u1", session_id="s1")
+    state["extracted_preferences"] = {"budget_max_usd": 60.0}
+    state["messages"] = [
+        HumanMessage(content="find me a gym under $60"),
+        AIMessage(content="What kind of activity?"),
+        HumanMessage(content="yoga"),
+    ]
+    stub = _StubLLM(UnderstoodRequest(intent="fitness", activities=["yoga"]))
+
+    update = await understand_request(state, llm=stub)
+
+    assert update["extracted_preferences"] == {"budget_max_usd": 60.0, "activities": ["yoga"]}
+
+
+async def test_new_turn_overrides_same_field_from_earlier_turn():
+    state = new_agent_state(user_id="u1", session_id="s1")
+    state["extracted_preferences"] = {"budget_max_usd": 60.0}
+    state["messages"] = [HumanMessage(content="actually make it under $40")]
+    stub = _StubLLM(UnderstoodRequest(intent="fitness", budget_max_usd=40.0))
+
+    update = await understand_request(state, llm=stub)
+
+    assert update["extracted_preferences"] == {"budget_max_usd": 40.0}
 
 
 async def test_unclear_intent_still_returns_a_valid_update():

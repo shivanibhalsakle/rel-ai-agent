@@ -55,11 +55,30 @@ class UnderstoodRequest(BaseModel):
     wants_quiet: bool | None = None
 
 
+_CONTEXT_TURN_LIMIT = 6
+# ^ this app's clarifying-question loop is meant to be short (bounded by
+# tool_call_budget, not a long free-form chat), so a handful of recent
+# turns is enough context — not the full history.
+
+
 def _latest_user_text(messages: list) -> str:
     for message in reversed(messages):
         if isinstance(message, HumanMessage):
             return message.content
     return ""
+
+
+def _conversation_context(messages: list) -> str:
+    """Render recent turns as a simple transcript. Needed for follow-up
+    answers to a clarifying question ("yoga", "under $60") — those are only
+    interpretable with the preceding question as context; extracting from
+    the isolated latest message alone (this node's original M4.3 behavior)
+    breaks the moment there's a second turn."""
+    lines = []
+    for message in messages[-_CONTEXT_TURN_LIMIT:]:
+        role = "User" if isinstance(message, HumanMessage) else "Assistant"
+        lines.append(f"{role}: {message.content}")
+    return "\n".join(lines)
 
 
 async def understand_request(state: AgentState, llm: LLMProvider | None = None) -> dict:
@@ -69,11 +88,16 @@ async def understand_request(state: AgentState, llm: LLMProvider | None = None) 
     this node's extraction/shaping logic can be unit-tested with a stub,
     without spending real API calls on every test run."""
     llm = llm or LLMProvider()
-    user_text = _latest_user_text(state["messages"])
+    context = _conversation_context(state["messages"])
 
     understood = await llm.generate_structured(
         system=SYSTEM_PROMPT,
-        user_message=user_text,
+        user_message=(
+            f"Conversation so far:\n{context}\n\n"
+            "Extract from the user's most recent message, using earlier turns only as context "
+            "for interpreting it (e.g. a short reply like \"yoga\" or \"under $60\" answers "
+            "whatever the assistant's last question asked)."
+        ),
         output_model=UnderstoodRequest,
     )
 
@@ -85,7 +109,13 @@ async def understand_request(state: AgentState, llm: LLMProvider | None = None) 
     if not extracted.get("activities"):
         extracted.pop("activities", None)
 
+    # Merge with (not replace) whatever was already extracted in an earlier
+    # turn of the same session — a clarifying-question answer only ever
+    # adds/updates one field, and would otherwise wipe out everything
+    # extracted from the original message.
+    merged = {**state.get("extracted_preferences", {}), **extracted}
+
     return {
         "intent": understood.intent,
-        "extracted_preferences": extracted,
+        "extracted_preferences": merged,
     }
