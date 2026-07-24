@@ -1,4 +1,5 @@
 import { Recommendation } from "@/lib/chat";
+import { FeedbackAction } from "@/lib/feedback";
 import { RecommendationCard } from "./RecommendationCard";
 
 /**
@@ -17,13 +18,27 @@ import { RecommendationCard } from "./RecommendationCard";
  * explanation grounded in that breakdown. Revisit once dataConfidence
  * exists on the wire.
  */
-export function RecommendationList({ recommendations }: { recommendations: Recommendation[] }) {
+export function RecommendationList({
+  recommendations,
+  onFeedback,
+}: {
+  recommendations: Recommendation[];
+  // Optional, threaded straight through to each card (Milestone 7) --
+  // omit it and the list renders exactly as it did before feedback
+  // existed, which is what every pre-M7 caller (and RecommendationCard's
+  // own tests) still expects.
+  onFeedback?: (recommendation: Recommendation, action: FeedbackAction, reason?: string) => Promise<void>;
+}) {
   if (recommendations.length === 0) return null;
 
   return (
     <ol className="space-y-2">
       {recommendations.map((r) => (
-        <RecommendationCard key={r.placeId} recommendation={r} />
+        <RecommendationCard
+          key={r.placeId}
+          recommendation={r}
+          onFeedback={onFeedback ? (action, reason) => onFeedback(r, action, reason) : undefined}
+        />
       ))}
     </ol>
   );

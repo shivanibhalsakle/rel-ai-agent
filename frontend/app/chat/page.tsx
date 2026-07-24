@@ -4,8 +4,9 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { ChatApiError, ChatResponse, sendChatMessage } from "@/lib/chat";
+import { ChatApiError, ChatResponse, Recommendation, sendChatMessage } from "@/lib/chat";
 import { ThreadMessage, clearThread, loadThread, saveThread } from "@/lib/chat-storage";
+import { FeedbackAction, sendFeedback } from "@/lib/feedback";
 import { RecommendationList } from "@/components/recommendation-cards/RecommendationList";
 import { RecommendationMap } from "@/components/map/RecommendationMap";
 import { WeatherTimeline } from "@/components/weather/WeatherTimeline";
@@ -78,6 +79,27 @@ export default function ChatPage() {
         intent: response.intent,
       },
     ]);
+  }
+
+  // Attaches feedback to whichever session/intent were active when this
+  // card's message arrived. This app keeps exactly one sessionId per
+  // conversation thread (only "New conversation" ever resets it), so the
+  // current sessionId state is correct for any message still on screen --
+  // no need to snapshot it per-message.
+  async function handleFeedback(
+    recommendation: Recommendation,
+    intent: string | null,
+    action: FeedbackAction,
+    reason?: string
+  ) {
+    const idToken = await getIdToken();
+    await sendFeedback(idToken, recommendation.placeId, {
+      sessionId: sessionId ?? "",
+      intent: intent ?? "general",
+      action,
+      reason,
+      scoreBreakdown: recommendation.scoreBreakdown,
+    });
   }
 
   function startNewConversation() {
@@ -160,7 +182,10 @@ export default function ChatPage() {
             )}
             {m.recommendations && m.intent !== "weather" && (
               <div className="mt-2 space-y-2 text-left">
-                <RecommendationList recommendations={m.recommendations} />
+                <RecommendationList
+                  recommendations={m.recommendations}
+                  onFeedback={(rec, action, reason) => handleFeedback(rec, m.intent ?? null, action, reason)}
+                />
                 <RecommendationMap recommendations={m.recommendations} />
               </div>
             )}

@@ -1,5 +1,5 @@
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { Recommendation } from "@/lib/chat";
 import { RecommendationList } from "./RecommendationList";
 
@@ -38,5 +38,20 @@ describe("RecommendationList", () => {
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain("First Place");
     expect(items[1].textContent).toContain("Second Place");
+  });
+
+  it("passes the clicked recommendation through to onFeedback", () => {
+    const onFeedback = vi.fn().mockResolvedValue(undefined);
+    const recommendations = [
+      makeRecommendation({ placeId: "p1", name: "First Place", rank: 1 }),
+      makeRecommendation({ placeId: "p2", name: "Second Place", rank: 2 }),
+    ];
+
+    render(<RecommendationList recommendations={recommendations} onFeedback={onFeedback} />);
+
+    const helpfulButtons = screen.getAllByText("👍 Helpful");
+    fireEvent.click(helpfulButtons[1]);
+
+    expect(onFeedback).toHaveBeenCalledWith(recommendations[1], "accepted", undefined);
   });
 });

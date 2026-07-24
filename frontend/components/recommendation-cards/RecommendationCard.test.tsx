@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { Recommendation } from "@/lib/chat";
 import { RecommendationCard } from "./RecommendationCard";
 
@@ -82,5 +82,70 @@ describe("RecommendationCard", () => {
     const pill = container.querySelector(`.${expectedClass}`);
     expect(pill).not.toBeNull();
     expect(pill?.textContent).toBe(`${score}/100`);
+  });
+
+  // ---- Milestone 7: accept/reject feedback ----
+
+  it("renders no feedback UI when onFeedback is not provided", () => {
+    render(<RecommendationCard recommendation={makeRecommendation()} />);
+
+    expect(screen.queryByText("👍 Helpful")).not.toBeInTheDocument();
+    expect(screen.queryByText("👎 Not helpful")).not.toBeInTheDocument();
+  });
+
+  it("clicking Helpful submits an accepted action with no reason", async () => {
+    const onFeedback = vi.fn().mockResolvedValue(undefined);
+    render(<RecommendationCard recommendation={makeRecommendation()} onFeedback={onFeedback} />);
+
+    fireEvent.click(screen.getByText("👍 Helpful"));
+
+    await waitFor(() => expect(screen.getByText("Thanks — saved.")).toBeInTheDocument());
+    expect(onFeedback).toHaveBeenCalledWith("accepted", undefined);
+  });
+
+  it("clicking Not helpful reveals a reason field, and Submit sends the typed reason", async () => {
+    const onFeedback = vi.fn().mockResolvedValue(undefined);
+    render(<RecommendationCard recommendation={makeRecommendation()} onFeedback={onFeedback} />);
+
+    fireEvent.click(screen.getByText("👎 Not helpful"));
+    const input = screen.getByPlaceholderText("What wasn't a fit? (optional)");
+    fireEvent.change(input, { target: { value: "too far from home" } });
+    fireEvent.click(screen.getByText("Submit"));
+
+    await waitFor(() => expect(screen.getByText("Thanks — saved.")).toBeInTheDocument());
+    expect(onFeedback).toHaveBeenCalledWith("rejected", "too far from home");
+  });
+
+  it("submitting a rejection with a blank reason omits it rather than sending an empty string", async () => {
+    const onFeedback = vi.fn().mockResolvedValue(undefined);
+    render(<RecommendationCard recommendation={makeRecommendation()} onFeedback={onFeedback} />);
+
+    fireEvent.click(screen.getByText("👎 Not helpful"));
+    fireEvent.click(screen.getByText("Submit"));
+
+    await waitFor(() => expect(onFeedback).toHaveBeenCalled());
+    expect(onFeedback).toHaveBeenCalledWith("rejected", undefined);
+  });
+
+  it("Cancel returns to the idle buttons without calling onFeedback", () => {
+    const onFeedback = vi.fn();
+    render(<RecommendationCard recommendation={makeRecommendation()} onFeedback={onFeedback} />);
+
+    fireEvent.click(screen.getByText("👎 Not helpful"));
+    fireEvent.click(screen.getByText("Cancel"));
+
+    expect(screen.getByText("👍 Helpful")).toBeInTheDocument();
+    expect(onFeedback).not.toHaveBeenCalled();
+  });
+
+  it("shows a retry option when the feedback call fails", async () => {
+    const onFeedback = vi.fn().mockRejectedValue(new Error("network error"));
+    render(<RecommendationCard recommendation={makeRecommendation()} onFeedback={onFeedback} />);
+
+    fireEvent.click(screen.getByText("👍 Helpful"));
+
+    await waitFor(() => expect(screen.getByText("Couldn't save that.")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Try again"));
+    expect(screen.getByText("👍 Helpful")).toBeInTheDocument();
   });
 });
