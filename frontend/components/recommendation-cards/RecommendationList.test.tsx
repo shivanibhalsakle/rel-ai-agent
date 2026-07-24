@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Recommendation } from "@/lib/chat";
 import { RecommendationList } from "./RecommendationList";
@@ -40,7 +40,7 @@ describe("RecommendationList", () => {
     expect(items[1].textContent).toContain("Second Place");
   });
 
-  it("passes the clicked recommendation through to onFeedback", () => {
+  it("passes the clicked recommendation through to onFeedback", async () => {
     const onFeedback = vi.fn().mockResolvedValue(undefined);
     const recommendations = [
       makeRecommendation({ placeId: "p1", name: "First Place", rank: 1 }),
@@ -53,5 +53,11 @@ describe("RecommendationList", () => {
     fireEvent.click(helpfulButtons[1]);
 
     expect(onFeedback).toHaveBeenCalledWith(recommendations[1], "accepted", undefined);
+
+    // Waits for the clicked card's post-await setStatus("done") to land
+    // before the test returns -- otherwise that state update fires after
+    // this test has already finished, outside any act() boundary (the
+    // "not wrapped in act(...)" warning this replaced).
+    await waitFor(() => expect(screen.getAllByText("Thanks — saved.")).toHaveLength(1));
   });
 });
