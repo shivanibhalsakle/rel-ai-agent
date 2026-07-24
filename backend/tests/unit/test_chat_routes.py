@@ -189,6 +189,8 @@ def test_completed_response_includes_ranked_recommendations(client, monkeypatch)
     assert body["recommendations"][0]["placeId"] == "p1"
     assert body["recommendations"][0]["explanation"] == "Great rating"
     assert body["recommendations"][0]["scoreBreakdown"] == {"rating": 0.9}
+    assert body["recommendations"][0]["lat"] == 1.0
+    assert body["recommendations"][0]["lng"] == 1.0
 
 
 # ---- /v1/chat/{sessionId}/resume ----

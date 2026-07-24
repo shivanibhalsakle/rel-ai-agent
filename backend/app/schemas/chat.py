@@ -35,6 +35,11 @@ class Recommendation(CamelModel):
     score: float
     score_breakdown: dict[str, float]
     explanation: str | None = None
+    # Added for M5.5 (map display) -- every scored PlaceCandidate already
+    # carries these (M2.3), _build_response just wasn't copying them
+    # through until the frontend actually needed to plot a marker.
+    lat: float
+    lng: float
 
 
 class ChatResponse(CamelModel):

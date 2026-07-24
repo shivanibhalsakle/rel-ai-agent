@@ -80,6 +80,8 @@ def _build_response(session_id: str, result: dict) -> ChatResponse:
             score=scored.total_score,
             score_breakdown={c.factor: c.score for c in scored.components},
             explanation=result.get("explanations", {}).get(scored.item.place_id),
+            lat=scored.item.lat,
+            lng=scored.item.lng,
         )
         for i, scored in enumerate(result.get("scored_results") or [])
     ]
