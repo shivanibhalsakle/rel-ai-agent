@@ -413,6 +413,133 @@ async def test_geocode_transient_error_retries_then_succeeds(monkeypatch):
     geocode.assert_exhausted()  # confirms it really was called twice
 
 
+# ---- route/weather: their own budget gate short-circuits too (Milestone 6) ----
+
+
+async def test_route_tool_budget_exceeded_short_circuits(monkeypatch):
+    # Confirms check_budget_route -- a new M6 gate, not just the shared
+    # _budget_gate() function it's built from -- is actually wired to the
+    # right node names in graph.py. A copy-paste mistake in the
+    # add_conditional_edges mapping wouldn't show up in the happy-path
+    # flow test at all.
+    understand = _FakeNode(
+        {"intent": "route", "extracted_preferences": {}, "location_query": "Golden Gate Park"}
+    )
+    load_prefs = _FakeNode({"saved_preferences": UserPreferences()})
+    geocode = _FakeNode(
+        {"resolved_location": {"lat": 37.769, "lng": -122.483, "formatted_address": "Golden Gate Park, San Francisco, CA"}}
+    )
+
+    graph = _build_test_graph(
+        monkeypatch, understand_request=understand, load_preferences=load_prefs, geocode_location=geocode
+    )
+    config = _config("route-budget-session")
+
+    state = new_agent_state(user_id="u1", session_id="route-budget-session", tool_call_budget=1)
+    state["messages"] = [HumanMessage(content="find me a 3 mile route near Golden Gate Park")]
+    result = await graph.ainvoke(state, config)
+
+    assert "narrow" in result["explanation"].lower()
+    # geocode's gate (0->1) was within budget=1 and ran; check_budget_route's
+    # gate (1->2) is what exceeded it -- generate_route_candidates never ran.
+    assert result["tool_call_count"] == 2
+
+
+async def test_weather_tool_budget_exceeded_short_circuits(monkeypatch):
+    understand = _FakeNode({"intent": "weather", "extracted_preferences": {}, "location_query": "Prospect Park"})
+    load_prefs = _FakeNode({"saved_preferences": UserPreferences()})
+    geocode = _FakeNode(
+        {"resolved_location": {"lat": 40.66, "lng": -73.97, "formatted_address": "Prospect Park, Brooklyn, NY"}}
+    )
+
+    graph = _build_test_graph(
+        monkeypatch, understand_request=understand, load_preferences=load_prefs, geocode_location=geocode
+    )
+    config = _config("weather-budget-session")
+
+    state = new_agent_state(user_id="u1", session_id="weather-budget-session", tool_call_budget=1)
+    state["messages"] = [HumanMessage(content="best time to run today near Prospect Park")]
+    result = await graph.ainvoke(state, config)
+
+    assert "narrow" in result["explanation"].lower()
+    assert result["tool_call_count"] == 2
+
+
+# ---- route/weather: pipeline finds nothing usable, degrades honestly (Milestone 6) ----
+
+
+async def test_route_pipeline_error_degrades_to_honest_message(monkeypatch):
+    # generate_route_candidates reports an error and no candidates when it
+    # has nothing to work with (M6.2's real behavior for e.g. a
+    # RouteProvider outage) -- confirms that flows through
+    # score_recommendations (empty list, no crash) to the same honest
+    # degrade message fitness/workspace already use, not a silent empty
+    # response or an unhandled exception.
+    understand = _FakeNode(
+        {"intent": "route", "extracted_preferences": {}, "location_query": "Golden Gate Park"}
+    )
+    load_prefs = _FakeNode({"saved_preferences": UserPreferences()})
+    geocode = _FakeNode(
+        {"resolved_location": {"lat": 37.769, "lng": -122.483, "formatted_address": "Golden Gate Park, San Francisco, CA"}}
+    )
+    candidates = _FakeNode(
+        {
+            "route_candidates": [],
+            "errors": [{"node": "generate_route_candidates", "message": "No routes could be computed.", "retryable": False}],
+        }
+    )
+    explain = _FakeNode(_explanations_from_scores)
+
+    graph = _build_test_graph(
+        monkeypatch,
+        understand_request=understand,
+        load_preferences=load_prefs,
+        geocode_location=geocode,
+        generate_route_candidates=candidates,
+        generate_explanation=explain,
+    )
+    config = _config("route-degrade-session")
+
+    state = new_agent_state(user_id="u1", session_id="route-degrade-session")
+    state["messages"] = [HumanMessage(content="find me a 3 mile route near Golden Gate Park")]
+    result = await graph.ainvoke(state, config)
+
+    assert result["scored_results"] == []
+    assert "No routes could be computed" in result["explanation"]
+
+
+async def test_weather_pipeline_error_degrades_to_honest_message(monkeypatch):
+    understand = _FakeNode({"intent": "weather", "extracted_preferences": {}, "location_query": "Prospect Park"})
+    load_prefs = _FakeNode({"saved_preferences": UserPreferences()})
+    geocode = _FakeNode(
+        {"resolved_location": {"lat": 40.66, "lng": -73.97, "formatted_address": "Prospect Park, Brooklyn, NY"}}
+    )
+    forecast = _FakeNode(
+        {
+            "weather_data": [],
+            "errors": [{"node": "fetch_weather_forecast", "message": "Weather service unavailable.", "retryable": False}],
+        }
+    )
+    explain = _FakeNode(_explanations_from_scores)
+
+    graph = _build_test_graph(
+        monkeypatch,
+        understand_request=understand,
+        load_preferences=load_prefs,
+        geocode_location=geocode,
+        fetch_weather_forecast=forecast,
+        generate_explanation=explain,
+    )
+    config = _config("weather-degrade-session")
+
+    state = new_agent_state(user_id="u1", session_id="weather-degrade-session")
+    state["messages"] = [HumanMessage(content="best time to run today near Prospect Park")]
+    result = await graph.ainvoke(state, config)
+
+    assert result["scored_results"] == []
+    assert "Weather service unavailable" in result["explanation"]
+
+
 # ---- provider error: permanent failure degrades to an honest message ----
 
 
