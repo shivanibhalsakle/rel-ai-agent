@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { ChatApiError, ChatResponse, sendChatMessage } from "@/lib/chat";
@@ -25,6 +26,16 @@ export default function ChatPage() {
   useEffect(() => {
     if (!user) return;
     const stored = loadThread(user.uid);
+    // Syncing render state from an external store (localStorage) keyed on
+    // a value that itself resolves asynchronously (Firebase auth's user)
+    // is exactly the "adopt external state when a dependency changes"
+    // case effects exist for -- there's no synchronous alternative here,
+    // since `user` isn't known until the auth context resolves. The two
+    // setState calls below are batched into a single re-render by React
+    // (automatic batching, effects included, since React 18) despite the
+    // rule's generic "cascading renders" warning, so there's no real perf
+    // cost being traded away here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessages(stored.messages);
     setSessionId(stored.sessionId);
     hydrated.current = true;
@@ -42,9 +53,9 @@ export default function ChatPage() {
       <main className="flex min-h-screen items-center justify-center p-8 text-center">
         <p className="text-slate-600">
           Please{" "}
-          <a href="/" className="underline">
+          <Link href="/" className="underline">
             sign in
-          </a>{" "}
+          </Link>{" "}
           first.
         </p>
       </main>

@@ -44,7 +44,7 @@ export function PreferencesForm({ initialValues, submitLabel, onSubmit }: Props)
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
       <fieldset>
-        <legend className="mb-2 text-sm font-medium">Activities you're interested in</legend>
+        <legend className="mb-2 text-sm font-medium">Activities you&apos;re interested in</legend>
         <div className="flex flex-wrap gap-2">
           {ACTIVITY_OPTIONS.map((activity) => (
             <button
@@ -102,7 +102,7 @@ export function PreferencesForm({ initialValues, submitLabel, onSubmit }: Props)
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          Minimum rating you'll consider
+          Minimum rating you&apos;ll consider
           <select
             value={values.minRating}
             onChange={(e) => set("minRating", e.target.value)}

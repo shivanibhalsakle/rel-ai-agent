@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
@@ -41,7 +42,7 @@ export default function SettingsPage() {
     return (
       <main className="flex min-h-screen items-center justify-center p-8 text-center">
         <p className="text-slate-600">
-          Please <a href="/" className="underline">sign in</a> first.
+          Please <Link href="/" className="underline">sign in</Link> first.
         </p>
       </main>
     );

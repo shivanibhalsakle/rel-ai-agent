@@ -57,6 +57,45 @@ export function RecommendationMap({ recommendations }: { recommendations: Recomm
     (r): r is Recommendation & { polyline: string } => typeof r.polyline === "string" && r.polyline.length > 0
   );
 
+  // Declared before the effects that call it (react-hooks/immutability
+  // wants this -- function declarations are hoisted so it ran fine either
+  // way, but the lint rule flags a function referenced inside an effect
+  // being defined textually later in the component).
+  function renderOverlays() {
+    const map = mapRef.current;
+    if (!map) return;
+
+    markersRef.current.forEach((marker) => marker.setMap(null));
+    markersRef.current = plottable.map(
+      (r) =>
+        new google.maps.Marker({
+          map,
+          position: { lat: r.lat, lng: r.lng },
+          label: String(r.rank),
+          title: r.name,
+        })
+    );
+
+    polylinesRef.current.forEach((line) => line.setMap(null));
+    polylinesRef.current = routable.map(
+      (r, i) =>
+        new google.maps.Polyline({
+          map,
+          path: google.maps.geometry.encoding.decodePath(r.polyline),
+          strokeColor: ROUTE_COLORS[i % ROUTE_COLORS.length],
+          strokeOpacity: 0.85,
+          strokeWeight: r.rank === 1 ? 5 : 3,
+        })
+    );
+
+    const bounds = new google.maps.LatLngBounds();
+    plottable.forEach((r) => bounds.extend({ lat: r.lat, lng: r.lng }));
+    routable.forEach((r) => google.maps.geometry.encoding.decodePath(r.polyline).forEach((p) => bounds.extend(p)));
+    if (plottable.length > 0 || routable.length > 0) {
+      map.fitBounds(bounds);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -96,41 +135,6 @@ export function RecommendationMap({ recommendations }: { recommendations: Recomm
     if (mapRef.current) renderOverlays();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recommendations]);
-
-  function renderOverlays() {
-    const map = mapRef.current;
-    if (!map) return;
-
-    markersRef.current.forEach((marker) => marker.setMap(null));
-    markersRef.current = plottable.map(
-      (r) =>
-        new google.maps.Marker({
-          map,
-          position: { lat: r.lat, lng: r.lng },
-          label: String(r.rank),
-          title: r.name,
-        })
-    );
-
-    polylinesRef.current.forEach((line) => line.setMap(null));
-    polylinesRef.current = routable.map(
-      (r, i) =>
-        new google.maps.Polyline({
-          map,
-          path: google.maps.geometry.encoding.decodePath(r.polyline),
-          strokeColor: ROUTE_COLORS[i % ROUTE_COLORS.length],
-          strokeOpacity: 0.85,
-          strokeWeight: r.rank === 1 ? 5 : 3,
-        })
-    );
-
-    const bounds = new google.maps.LatLngBounds();
-    plottable.forEach((r) => bounds.extend({ lat: r.lat, lng: r.lng }));
-    routable.forEach((r) => google.maps.geometry.encoding.decodePath(r.polyline).forEach((p) => bounds.extend(p)));
-    if (plottable.length > 0 || routable.length > 0) {
-      map.fitBounds(bounds);
-    }
-  }
 
   if (plottable.length === 0 && routable.length === 0) return null;
 

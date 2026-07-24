@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
@@ -16,7 +17,7 @@ export default function OnboardingPage() {
     return (
       <main className="flex min-h-screen items-center justify-center p-8 text-center">
         <p className="text-slate-600">
-          Please <a href="/" className="underline">sign in</a> first.
+          Please <Link href="/" className="underline">sign in</Link> first.
         </p>
       </main>
     );
@@ -41,7 +42,7 @@ export default function OnboardingPage() {
       <div>
         <h1 className="text-2xl font-semibold">Tell us how you like to move and work</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Skip anything you're not sure about — you can change these anytime in Settings.
+          Skip anything you&apos;re not sure about — you can change these anytime in Settings.
         </p>
       </div>
       <PreferencesForm
