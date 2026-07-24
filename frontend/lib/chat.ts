@@ -1,10 +1,17 @@
 /**
- * Types and API call for POST /v1/chat (see backend app/schemas/chat.py /
- * app/api/chat.py, Milestone 4.10). `/v1/chat/{sessionId}/resume` isn't
- * called from the frontend -- the backend auto-detects a paused session
- * from sessionId alone (M4.10's whole point), so the UI only ever needs
- * this one call, whether it's starting a conversation, answering a
- * clarifying question, or asking a follow-up.
+ * Types and API calls for POST /v1/chat and POST /v1/chat/{sessionId}/resume
+ * (see backend app/schemas/chat.py / app/api/chat.py, Milestone 4.10 + M8.5).
+ *
+ * Through M7, `/resume` was never actually called from the frontend -- the
+ * backend auto-detects a paused session from sessionId alone (M4.10's whole
+ * point), so sendChatMessage was the only call the UI needed, whether it
+ * was starting a conversation, answering a clarifying question, or asking
+ * a follow-up. M8.5 changes that for exactly one case: a paused calendar
+ * approval. The backend deliberately REFUSES to auto-resume that from free
+ * text (a non-empty string is truthy in Python -- see app/api/chat.py's
+ * module docstring for why that's a real bug it closes, not caution for
+ * its own sake), so confirming/rejecting a proposed event has to go
+ * through sendApprovalDecision -> /resume with an explicit boolean.
  */
 import { apiFetch } from "./api-client";
 
@@ -34,11 +41,22 @@ export interface Recommendation {
   startTime: string | null;
 }
 
+// M8.5/M8.7: the calendar-event proposal request_user_approval's interrupt
+// pauses on. Mirrors backend ProposedEvent (schemas/chat.py) exactly.
+export interface ProposedEvent {
+  title: string;
+  start: string;
+  end: string;
+  location: string | null;
+}
+
 export interface ChatResponse {
   sessionId: string;
   status: "completed" | "awaiting_input" | "awaiting_approval";
   intent: string | null;
   question: string | null;
+  // Set only when status === "awaiting_approval".
+  proposedEvent: ProposedEvent | null;
   recommendations: Recommendation[];
   message: string | null;
 }
@@ -79,6 +97,40 @@ export async function sendChatMessage(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sessionId: sessionId ?? undefined, message }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    const text = detail.detail
+      ? typeof detail.detail === "string"
+        ? detail.detail
+        : JSON.stringify(detail.detail)
+      : `Error ${res.status}`;
+    throw new ChatApiError(res.status, text);
+  }
+
+  return res.json();
+}
+
+/**
+ * Confirms or rejects the calendar-event proposal a session is currently
+ * paused on. Unlike sendChatMessage, this always targets an EXISTING,
+ * already-paused sessionId -- there's no "start fresh" branch here, since
+ * an approval decision only ever makes sense as a reply to a specific
+ * pending proposal. The backend enforces that too (a 422 if `approved`
+ * wasn't a real boolean, a 409 if nothing's actually pending) -- this
+ * function surfaces either as a ChatApiError the same way sendChatMessage
+ * does, rather than a distinct error type.
+ */
+export async function sendApprovalDecision(
+  idToken: string | null,
+  sessionId: string,
+  approved: boolean
+): Promise<ChatResponse> {
+  const res = await apiFetch(`/v1/chat/${encodeURIComponent(sessionId)}/resume`, idToken, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approved }),
   });
 
   if (!res.ok) {

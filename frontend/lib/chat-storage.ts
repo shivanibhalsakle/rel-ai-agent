@@ -15,7 +15,7 @@
  * checkpointer is the real fix; it's already tracked as a known gap in
  * graph.py, not something to duplicate here.
  */
-import { Recommendation } from "./chat";
+import { ProposedEvent, Recommendation } from "./chat";
 
 export interface ThreadMessage {
   id: string;
@@ -27,6 +27,13 @@ export interface ThreadMessage {
   // weather) per message without re-deriving it from the recommendations
   // themselves, which don't self-describe which domain they came from.
   intent?: string | null;
+  // Added for M8.5/M8.7 -- renders an ApprovalCard under this message.
+  // Like RecommendationCard's own accept/reject status (component-local
+  // useState, never persisted), a reload always shows the card fresh/
+  // actionable again rather than remembering it was already confirmed or
+  // rejected -- a known, deliberate limitation matching that precedent,
+  // not new scope to solve here.
+  proposedEvent?: ProposedEvent | null;
 }
 
 export interface StoredThread {

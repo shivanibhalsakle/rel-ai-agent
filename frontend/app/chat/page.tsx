@@ -4,12 +4,13 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { ChatApiError, ChatResponse, Recommendation, sendChatMessage } from "@/lib/chat";
+import { ChatApiError, ChatResponse, Recommendation, sendApprovalDecision, sendChatMessage } from "@/lib/chat";
 import { ThreadMessage, clearThread, loadThread, saveThread } from "@/lib/chat-storage";
 import { FeedbackAction, sendFeedback } from "@/lib/feedback";
 import { RecommendationList } from "@/components/recommendation-cards/RecommendationList";
 import { RecommendationMap } from "@/components/map/RecommendationMap";
 import { WeatherTimeline } from "@/components/weather/WeatherTimeline";
+import { ApprovalCard } from "@/components/calendar/ApprovalCard";
 
 export default function ChatPage() {
   const { user, loading, getIdToken } = useAuth();
@@ -67,6 +68,8 @@ export default function ChatPage() {
     const text =
       response.status === "awaiting_input"
         ? response.question ?? "Could you say a bit more?"
+        : response.status === "awaiting_approval"
+        ? `Want me to add "${response.proposedEvent?.title ?? "this"}" to your calendar?`
         : response.message ?? (response.recommendations.length ? "Here's what I found:" : "Done.");
 
     setMessages((prev) => [
@@ -77,8 +80,33 @@ export default function ChatPage() {
         text,
         recommendations: response.recommendations.length ? response.recommendations : undefined,
         intent: response.intent,
+        proposedEvent: response.proposedEvent,
       },
     ]);
+  }
+
+  // M8.5/M8.7: confirms or rejects the proposal on whichever ApprovalCard
+  // the user clicked -- always targets the CURRENT sessionId, same
+  // reasoning as handleFeedback (one session per thread, no per-message
+  // snapshot needed). Reuses handleSubmit's error handling shape (401 ->
+  // sign-in, everything else -> inline error) rather than duplicating it,
+  // since sendApprovalDecision throws the same ChatApiError sendChatMessage
+  // does.
+  async function handleApprovalDecision(approved: boolean) {
+    if (!sessionId) return;
+    try {
+      const idToken = await getIdToken();
+      const response = await sendApprovalDecision(idToken, sessionId, approved);
+      appendAssistantReply(response);
+    } catch (err) {
+      if (err instanceof ChatApiError && err.status === 401) {
+        if (user) clearThread(user.uid);
+        router.push("/");
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      throw err; // lets ApprovalCard's own try/catch show its retry UI too
+    }
   }
 
   // Attaches feedback to whichever session/intent were active when this
@@ -187,6 +215,11 @@ export default function ChatPage() {
                   onFeedback={(rec, action, reason) => handleFeedback(rec, m.intent ?? null, action, reason)}
                 />
                 <RecommendationMap recommendations={m.recommendations} />
+              </div>
+            )}
+            {m.proposedEvent && (
+              <div className="text-left">
+                <ApprovalCard proposedEvent={m.proposedEvent} onDecide={handleApprovalDecision} />
               </div>
             )}
           </div>

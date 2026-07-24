@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/api-client";
 import { fromApiPreferences, PreferencesFormValues, toApiPayload } from "@/lib/preferences";
 import { PreferencesForm } from "@/components/preferences-form";
 import { InferredPreferencesPanel } from "@/components/inferred-preferences-panel";
+import { CalendarConnection } from "@/components/calendar/CalendarConnection";
 
 export default function SettingsPage() {
   const { user, loading, getIdToken } = useAuth();
@@ -78,6 +79,8 @@ export default function SettingsPage() {
       )}
 
       {initialValues && <InferredPreferencesPanel getIdToken={getIdToken} />}
+
+      {initialValues && <CalendarConnection getIdToken={getIdToken} />}
     </main>
   );
 }
