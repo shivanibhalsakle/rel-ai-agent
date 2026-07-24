@@ -22,9 +22,6 @@ export function loadGoogleMaps(): Promise<void> {
   if (typeof window === "undefined") {
     return Promise.reject(new Error("loadGoogleMaps can only run in the browser."));
   }
-  if (window.google?.maps) {
-    return Promise.resolve();
-  }
   if (loadPromise) {
     return loadPromise;
   }
@@ -40,7 +37,22 @@ export function loadGoogleMaps(): Promise<void> {
     const script = document.createElement("script");
     script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&loading=async`;
     script.async = true;
-    script.onload = () => resolve();
+    script.onload = () => {
+      // With loading=async, google.maps.Map / Marker / LatLngBounds
+      // aren't populated on the legacy namespace just because the script
+      // tag finished loading -- each one only appears after its library
+      // is explicitly imported. Skipping this step is exactly what
+      // produced "google.maps.Map is not a constructor" the first time
+      // this ran against a real key.
+      const googleNamespace = window.google;
+      if (!googleNamespace?.maps?.importLibrary) {
+        reject(new Error("Google Maps script loaded but google.maps.importLibrary is missing."));
+        return;
+      }
+      Promise.all([googleNamespace.maps.importLibrary("maps"), googleNamespace.maps.importLibrary("marker")])
+        .then(() => resolve())
+        .catch(reject);
+    };
     script.onerror = () => {
       loadPromise = null; // let a future call retry instead of rejecting forever
       reject(new Error("Failed to load the Google Maps script."));
