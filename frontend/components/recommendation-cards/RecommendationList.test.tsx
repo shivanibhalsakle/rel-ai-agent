@@ -11,6 +11,8 @@ function makeRecommendation(overrides: Partial<Recommendation> = {}): Recommenda
     score: 80,
     scoreBreakdown: {},
     explanation: null,
+    lat: 40.7,
+    lng: -73.9,
     ...overrides,
   };
 }

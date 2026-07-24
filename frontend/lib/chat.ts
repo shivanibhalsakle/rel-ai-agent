@@ -15,6 +15,8 @@ export interface Recommendation {
   score: number;
   scoreBreakdown: Record<string, number>;
   explanation: string | null;
+  lat: number;
+  lng: number;
 }
 
 export interface ChatResponse {

@@ -11,6 +11,8 @@ function makeRecommendation(overrides: Partial<Recommendation> = {}): Recommenda
     score: 80,
     scoreBreakdown: { rating: 0.9, review_count: 0.5 },
     explanation: "Great rating and plenty of reviews.",
+    lat: 40.7,
+    lng: -73.9,
     ...overrides,
   };
 }

@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { ChatApiError, ChatResponse, sendChatMessage } from "@/lib/chat";
 import { ThreadMessage, clearThread, loadThread, saveThread } from "@/lib/chat-storage";
 import { RecommendationList } from "@/components/recommendation-cards/RecommendationList";
+import { RecommendationMap } from "@/components/map/RecommendationMap";
 
 export default function ChatPage() {
   const { user, loading, getIdToken } = useAuth();
@@ -134,8 +135,9 @@ export default function ChatPage() {
               <p>{m.text}</p>
             </div>
             {m.recommendations && (
-              <div className="mt-2 text-left">
+              <div className="mt-2 space-y-2 text-left">
                 <RecommendationList recommendations={m.recommendations} />
+                <RecommendationMap recommendations={m.recommendations} />
               </div>
             )}
           </div>
