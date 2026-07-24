@@ -35,24 +35,21 @@ export function loadGoogleMaps(): Promise<void> {
 
   loadPromise = new Promise<void>((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&loading=async`;
+    // Deliberately the classic, eager-loading script -- no loading=async
+    // param. That param switches Google's server to the newer "dynamic
+    // library import" mode, but that mode only defines
+    // google.maps.importLibrary if you also use Google's special inline
+    // bootstrap snippet to set it up BEFORE fetching this script; a query
+    // param alone on a plain <script src> doesn't do that. (Two real bugs
+    // chased in testing: "google.maps.Map is not a constructor" trying to
+    // use it without importLibrary, then "google.maps.importLibrary is
+    // missing" trying to call importLibrary without the bootstrap
+    // snippet.) The classic loader is simpler and sufficient here: it
+    // populates google.maps.Map / Marker / LatLngBounds directly by the
+    // time `onload` fires, no importLibrary call needed.
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
     script.async = true;
-    script.onload = () => {
-      // With loading=async, google.maps.Map / Marker / LatLngBounds
-      // aren't populated on the legacy namespace just because the script
-      // tag finished loading -- each one only appears after its library
-      // is explicitly imported. Skipping this step is exactly what
-      // produced "google.maps.Map is not a constructor" the first time
-      // this ran against a real key.
-      const googleNamespace = window.google;
-      if (!googleNamespace?.maps?.importLibrary) {
-        reject(new Error("Google Maps script loaded but google.maps.importLibrary is missing."));
-        return;
-      }
-      Promise.all([googleNamespace.maps.importLibrary("maps"), googleNamespace.maps.importLibrary("marker")])
-        .then(() => resolve())
-        .catch(reject);
-    };
+    script.onload = () => resolve();
     script.onerror = () => {
       loadPromise = null; // let a future call retry instead of rejecting forever
       reject(new Error("Failed to load the Google Maps script."));
