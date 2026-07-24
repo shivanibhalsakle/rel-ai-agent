@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api-client";
 import { fromApiPreferences, PreferencesFormValues, toApiPayload } from "@/lib/preferences";
 import { PreferencesForm } from "@/components/preferences-form";
+import { InferredPreferencesPanel } from "@/components/inferred-preferences-panel";
 
 export default function SettingsPage() {
   const { user, loading, getIdToken } = useAuth();
@@ -75,6 +76,8 @@ export default function SettingsPage() {
       {initialValues && (
         <PreferencesForm initialValues={initialValues} submitLabel="Save changes" onSubmit={handleSubmit} />
       )}
+
+      {initialValues && <InferredPreferencesPanel getIdToken={getIdToken} />}
     </main>
   );
 }

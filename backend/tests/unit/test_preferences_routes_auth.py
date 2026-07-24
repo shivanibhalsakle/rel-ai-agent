@@ -18,3 +18,8 @@ def test_get_preferences_requires_auth():
 def test_put_preferences_requires_auth():
     response = client.put("/v1/preferences", json={})
     assert response.status_code == 401
+
+
+def test_get_inferred_adjustment_requires_auth():
+    response = client.get("/v1/preferences/inferred")
+    assert response.status_code == 401
