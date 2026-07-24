@@ -23,6 +23,10 @@ _REQUIRED_FIELDS_BY_INTENT: dict[str, list[str]] = {
     "workspace": [],
     "route": [],
     "weather": [],
+    # add_to_calendar (M8.5) needs no preference fields and no location --
+    # prepare_calendar_proposal reads last_weather_recommendation instead,
+    # which is why it's also absent from _LOCATION_REQUIRED_INTENTS below.
+    "add_to_calendar": [],
     "general": [],
 }
 

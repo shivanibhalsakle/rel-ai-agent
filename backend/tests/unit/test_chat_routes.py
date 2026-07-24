@@ -262,6 +262,80 @@ def test_weather_result_has_start_time_and_no_polyline(client, monkeypatch):
     assert body["recommendations"][0]["startTime"] == "2026-07-24T14:00:00Z"
 
 
+def test_awaiting_approval_response_includes_proposed_event(client, monkeypatch):
+    payload = {
+        "title": "Time outside",
+        "start": "2026-07-25T17:00:00+00:00",
+        "end": "2026-07-25T18:00:00+00:00",
+        "location": "Prospect Park, Brooklyn, NY",
+    }
+    fake = FakeGraph(
+        result={"__interrupt__": (SimpleNamespace(value={"kind": "calendar_event", "payload": payload}),)}
+    )
+    monkeypatch.setattr(chat_module, "get_graph", lambda: fake)
+
+    response = client.post("/v1/chat", json={"message": "add that to my calendar"})
+
+    body = response.json()
+    assert body["status"] == "awaiting_approval"
+    assert body["question"] is None
+    assert body["proposedEvent"] == {
+        "title": "Time outside",
+        "start": "2026-07-25T17:00:00+00:00",
+        "end": "2026-07-25T18:00:00+00:00",
+        "location": "Prospect Park, Brooklyn, NY",
+    }
+
+
+# ---- M8.5: a pending calendar approval must never be resolved by free text ----
+
+
+def test_chat_refuses_to_auto_resume_a_pending_calendar_approval(client, monkeypatch):
+    fake = FakeGraph(
+        state_values={"user_id": "test-user", "pending_approval": {"kind": "calendar_event", "payload": {}}},
+        state_next=("request_user_approval",),
+    )
+    monkeypatch.setattr(chat_module, "get_graph", lambda: fake)
+
+    # Even a coincidentally-truthy string like "no" must not be forwarded
+    # as the interrupt's resume value -- see app/api/chat.py's module
+    # docstring on why this can't just fall through to Command(resume=...).
+    response = client.post("/v1/chat", json={"sessionId": "s1", "message": "no"})
+
+    assert response.status_code == 409
+    fake.ainvoke.assert_not_called()
+
+
+def test_resume_requires_approved_field_for_a_pending_calendar_approval(client, monkeypatch):
+    fake = FakeGraph(
+        state_values={"user_id": "test-user", "pending_approval": {"kind": "calendar_event", "payload": {}}},
+        state_next=("request_user_approval",),
+    )
+    monkeypatch.setattr(chat_module, "get_graph", lambda: fake)
+
+    response = client.post("/v1/chat/s1/resume", json={"answer": "yes"})  # wrong field on purpose
+
+    assert response.status_code == 422
+    fake.ainvoke.assert_not_called()
+
+
+def test_resume_sends_command_with_the_approved_bool_for_a_calendar_approval(client, monkeypatch):
+    fake = FakeGraph(
+        result={"intent": "add_to_calendar", "explanation": "Added to your calendar: Time outside."},
+        state_values={"user_id": "test-user", "pending_approval": {"kind": "calendar_event", "payload": {}}},
+        state_next=("request_user_approval",),
+    )
+    monkeypatch.setattr(chat_module, "get_graph", lambda: fake)
+
+    response = client.post("/v1/chat/s1/resume", json={"approved": True})
+
+    assert response.status_code == 200
+    graph_input, config = fake.ainvoke.call_args.args
+    assert isinstance(graph_input, Command)
+    assert graph_input.resume is True
+    assert config["configurable"]["thread_id"] == "s1"
+
+
 # ---- /v1/chat/{sessionId}/resume ----
 
 

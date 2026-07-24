@@ -120,3 +120,39 @@ async def test_general_intent_returns_empty_scored_results():
     update = score_recommendations(state)
 
     assert update["scored_results"] == []
+
+
+async def test_weather_intent_snapshots_the_top_pick_for_later_add_to_calendar():
+    cold = _forecast("2026-07-24T06:00:00Z", temp_c=2.0)
+    mild = _forecast("2026-07-24T14:00:00Z", temp_c=18.0)
+    state = _state("weather", [])
+    state["weather_data"] = [cold, mild]
+    state["resolved_location"] = {"lat": 40.66, "lng": -73.97, "formatted_address": "Prospect Park, Brooklyn, NY"}
+
+    update = score_recommendations(state)
+
+    snapshot = update["last_weather_recommendation"]
+    assert snapshot["start"] == "2026-07-24T14:00:00+00:00"
+    assert snapshot["end"] == "2026-07-24T15:00:00+00:00"
+    assert snapshot["location"] == "Prospect Park, Brooklyn, NY"
+    assert snapshot["title"]
+
+
+async def test_weather_intent_with_no_results_sets_no_snapshot():
+    state = _state("weather", [])
+    state["weather_data"] = []
+
+    update = score_recommendations(state)
+
+    assert "last_weather_recommendation" not in update
+
+
+async def test_weather_snapshot_location_is_none_without_a_resolved_location():
+    mild = _forecast("2026-07-24T14:00:00Z", temp_c=18.0)
+    state = _state("weather", [])
+    state["weather_data"] = [mild]
+    state["resolved_location"] = None
+
+    update = score_recommendations(state)
+
+    assert update["last_weather_recommendation"]["location"] is None

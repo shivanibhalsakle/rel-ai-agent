@@ -16,6 +16,16 @@ behaves -- the user just keeps typing in one box. /resume exists as an
 explicit alternative for a client that already knows it's answering a
 specific question (and wants a 409 if that assumption turns out to be
 wrong, rather than silent reinterpretation).
+
+As of M8.5, a session can also be paused on request_user_approval's
+calendar-event interrupt -- a fundamentally different kind of pause that
+must NEVER be auto-resumed from free text (see the `pending_approval`
+checks in both chat() and resume() below): a non-empty string is truthy
+in Python, so naively forwarding a typed message as the interrupt's
+resume value could accidentally confirm a calendar write the user never
+explicitly approved. Both endpoints tell the two interrupt kinds apart by
+checking `pending_approval` on the paused state, not by any client-
+supplied hint.
 """
 import uuid
 
@@ -26,7 +36,7 @@ from langgraph.types import Command
 from app.agent.graph import get_graph
 from app.agent.state import new_agent_state
 from app.auth.dependencies import get_current_user
-from app.schemas.chat import ChatRequest, ChatResponse, Recommendation, ResumeRequest
+from app.schemas.chat import ChatRequest, ChatResponse, ProposedEvent, Recommendation, ResumeRequest
 from app.scoring.base import item_display_name, item_id, item_polyline
 
 router = APIRouter()
@@ -51,9 +61,13 @@ _PER_TURN_RESET_FIELDS = (
     "explanations",
     "explanation",
     "pending_approval",
+    "approval_decision",
     "tool_call_count",
     "errors",
     "retry_counts",
+    # last_weather_recommendation is deliberately NOT in this list -- see
+    # agent/state.py's field comment. M8.5's "add to calendar" needs it to
+    # survive into a later turn, unlike everything else here.
 )
 
 
@@ -70,8 +84,19 @@ def _config(session_id: str) -> dict:
 
 def _build_response(session_id: str, result: dict) -> ChatResponse:
     if "__interrupt__" in result:
-        question = result["__interrupt__"][0].value
-        return ChatResponse(session_id=session_id, status="awaiting_input", question=question)
+        value = result["__interrupt__"][0].value
+        # request_user_approval (M8.5) interrupts with a dict payload;
+        # ask_user (M4.4) interrupts with a plain question string. Telling
+        # them apart here, not by tracking "which node paused us"
+        # separately, keeps this the one place that has to know both
+        # interrupt shapes exist.
+        if isinstance(value, dict) and value.get("kind") == "calendar_event":
+            return ChatResponse(
+                session_id=session_id,
+                status="awaiting_approval",
+                proposed_event=ProposedEvent(**value["payload"]),
+            )
+        return ChatResponse(session_id=session_id, status="awaiting_input", question=value)
 
     recommendations = [
         Recommendation(
@@ -118,6 +143,22 @@ async def chat(request: ChatRequest, user: dict = Depends(get_current_user)) -> 
         is_paused = False
 
     if is_paused:
+        if snapshot.values.get("pending_approval"):
+            # M8.5: never let a free-text message resolve a calendar
+            # approval, even coincidentally (e.g. typing "no" -- a
+            # non-empty string is truthy in Python, which would wrongly
+            # confirm the write if this endpoint naively forwarded it as
+            # the interrupt's resume value). The approval card (M8.7)
+            # must use /resume with an explicit `approved` boolean
+            # instead -- see that endpoint for why this isn't just
+            # pushed there either.
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This session is awaiting a calendar approval decision -- "
+                    'use POST /v1/chat/{sessionId}/resume with {"approved": true|false}.'
+                ),
+            )
         graph_input = Command(resume=request.message)
     elif session_exists:
         graph_input = _turn_reset_input(request.message)
@@ -143,6 +184,22 @@ async def resume(
     if not snapshot.next:
         raise HTTPException(status_code=409, detail="Session is not awaiting input.")
 
-    resume_value = request.answer if request.answer is not None else request.approved
+    if snapshot.values.get("pending_approval"):
+        # M8.5: require `approved` explicitly rather than falling back to
+        # `answer` the way the clarifying-question case does below --
+        # never coerce an arbitrary value (e.g. a stray `answer` string)
+        # into the approval decision. Pydantic already guarantees
+        # `approved` is a real bool or None at the request-schema level
+        # (see ResumeRequest), so there is no "truthy string" path into
+        # request_user_approval's interrupt() resume value at all.
+        if request.approved is None:
+            raise HTTPException(
+                status_code=422,
+                detail='This session is awaiting a calendar approval decision -- send {"approved": true|false}.',
+            )
+        resume_value = request.approved
+    else:
+        resume_value = request.answer
+
     result = await graph.ainvoke(Command(resume=resume_value), config)
     return _build_response(session_id, result)

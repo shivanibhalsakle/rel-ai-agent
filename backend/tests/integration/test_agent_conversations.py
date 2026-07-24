@@ -592,3 +592,167 @@ async def test_geocode_permanent_error_degrades_to_honest_message(monkeypatch):
     assert "Nowhereville" in result["explanation"]
     assert len(result["errors"]) == 1  # left in place, not silently cleared
     geocode.assert_exhausted()  # confirms no retry attempt was made
+
+
+# ---- add to calendar: weather turn, then a follow-up turn that proposes,
+# ---- pauses on a real interrupt, and resumes confirmed/rejected (M8.5/M8.6) ----
+
+
+async def test_add_to_calendar_confirmed_creates_the_event(monkeypatch):
+    # One _FakeNode per node, each given one canned response per turn it's
+    # actually called in, in order -- build_graph() binds these function
+    # objects once at compile time, so (unlike a real app) swapping
+    # graph_module.understand_request AFTER the graph is built would NOT
+    # affect the already-compiled graph. Multiple responses on the same
+    # _FakeNode is the pattern this whole file uses for multi-turn tests
+    # (see test_fitness_flow_pauses_for_location_then_completes).
+    #
+    # Turn 1: an ordinary weather turn. score_recommendations is the REAL
+    # node here (not faked) specifically so this test exercises its real
+    # M8.5 addition -- snapshotting the top pick into
+    # last_weather_recommendation -- not a fake standing in for it.
+    understand = _FakeNode(
+        {"intent": "weather", "extracted_preferences": {}, "location_query": "Prospect Park"},  # turn 1
+        {"intent": "add_to_calendar", "extracted_preferences": {}},  # turn 2
+    )
+    load_prefs = _FakeNode(
+        {"saved_preferences": UserPreferences()},
+        {"saved_preferences": UserPreferences()},
+    )
+    geocode = _FakeNode(
+        {"resolved_location": {"lat": 40.66, "lng": -73.97, "formatted_address": "Prospect Park, Brooklyn, NY"}}
+    )
+    forecast = _FakeNode({"weather_data": [_forecast("2026-07-24T14:00:00Z", temp_c=18.0)]})
+    freebusy = _FakeNode({})
+    explain = _FakeNode(_explanations_from_scores, {"explanations": {}})
+
+    # prepare_calendar_proposal is faked because the real one calls
+    # calendar_repository.is_connected (real Firestore) -- everything else
+    # about the interrupt/resume mechanics below is the REAL
+    # request_user_approval/create_calendar_event.
+    proposal = _FakeNode(
+        {
+            "pending_approval": {
+                "kind": "calendar_event",
+                "payload": {
+                    "title": "Time outside",
+                    "start": "2026-07-24T14:00:00+00:00",
+                    "end": "2026-07-24T15:00:00+00:00",
+                    "location": "Prospect Park, Brooklyn, NY",
+                },
+            }
+        }
+    )
+    create_event = _FakeNode({"explanation": "Added to your calendar: Time outside."})
+
+    graph = _build_test_graph(
+        monkeypatch,
+        understand_request=understand,
+        load_preferences=load_prefs,
+        geocode_location=geocode,
+        fetch_weather_forecast=forecast,
+        fetch_calendar_freebusy=freebusy,
+        generate_explanation=explain,
+        prepare_calendar_proposal=proposal,
+        create_calendar_event=create_event,
+    )
+    config = _config("add-to-calendar-session")
+
+    state = new_agent_state(user_id="u1", session_id="add-to-calendar-session")
+    state["messages"] = [HumanMessage(content="best time to run today near Prospect Park")]
+    turn1 = await graph.ainvoke(state, config)
+
+    assert turn1["last_weather_recommendation"]["start"] == "2026-07-24T14:00:00+00:00"
+
+    turn2 = await graph.ainvoke(
+        {"messages": [HumanMessage(content="add that to my calendar")]}, config
+    )
+
+    assert "__interrupt__" in turn2
+    interrupt_value = turn2["__interrupt__"][0].value
+    assert interrupt_value["kind"] == "calendar_event"
+    assert interrupt_value["payload"]["title"] == "Time outside"
+
+    turn3 = await graph.ainvoke(Command(resume=True), config)
+
+    assert "__interrupt__" not in turn3
+    assert turn3["approval_decision"] is True
+    assert "Added to your calendar" in turn3["explanation"]
+    create_event.assert_exhausted()
+
+
+async def test_add_to_calendar_rejected_never_calls_create_calendar_event(monkeypatch):
+    understand = _FakeNode(
+        {"intent": "add_to_calendar", "extracted_preferences": {}},
+    )
+    load_prefs = _FakeNode({"saved_preferences": UserPreferences()})
+    proposal = _FakeNode(
+        {
+            "pending_approval": {
+                "kind": "calendar_event",
+                "payload": {
+                    "title": "Time outside",
+                    "start": "2026-07-24T14:00:00+00:00",
+                    "end": "2026-07-24T15:00:00+00:00",
+                    "location": None,
+                },
+            }
+        }
+    )
+    explain = _FakeNode({"explanations": {}})
+    # A fake that would fail the test loudly if it were ever called --
+    # zero canned responses means _FakeNode's own assertion fires on the
+    # first call, which is exactly the point: this proves the graph
+    # genuinely never reaches create_calendar_event on the rejected path,
+    # not just that the test happens not to check for it.
+    create_event = _FakeNode()
+
+    graph = _build_test_graph(
+        monkeypatch,
+        understand_request=understand,
+        load_preferences=load_prefs,
+        generate_explanation=explain,
+        prepare_calendar_proposal=proposal,
+        create_calendar_event=create_event,
+    )
+    config = _config("add-to-calendar-rejected-session")
+
+    state = new_agent_state(user_id="u1", session_id="add-to-calendar-rejected-session")
+    state["messages"] = [HumanMessage(content="add that to my calendar")]
+    turn1 = await graph.ainvoke(state, config)
+
+    assert "__interrupt__" in turn1
+
+    turn2 = await graph.ainvoke(Command(resume=False), config)
+
+    assert turn2["approval_decision"] is False
+    assert "won't add" in turn2["explanation"]
+    create_event.assert_exhausted()  # never called -- 0 responses, 0 calls
+
+
+async def test_add_to_calendar_with_no_recent_weather_pick_skips_the_interrupt_entirely(monkeypatch):
+    # prepare_calendar_proposal itself degrades honestly when there's
+    # nothing to propose (M8.5) -- this test uses the REAL node (not
+    # faked) to confirm that degrade path never sets pending_approval, so
+    # request_user_approval's interrupt is never reached at all. Safe to
+    # use the real node here specifically because it never touches
+    # Firestore when last_weather_recommendation is already empty (see
+    # that node's early return, before the is_connected check).
+    understand = _FakeNode({"intent": "add_to_calendar", "extracted_preferences": {}})
+    load_prefs = _FakeNode({"saved_preferences": UserPreferences()})
+    explain = _FakeNode({"explanations": {}})
+
+    graph = _build_test_graph(
+        monkeypatch,
+        understand_request=understand,
+        load_preferences=load_prefs,
+        generate_explanation=explain,
+    )
+    config = _config("add-to-calendar-nothing-to-propose-session")
+
+    state = new_agent_state(user_id="u1", session_id="add-to-calendar-nothing-to-propose-session")
+    state["messages"] = [HumanMessage(content="add that to my calendar")]
+    result = await graph.ainvoke(state, config)
+
+    assert "__interrupt__" not in result
+    assert "ask me for the best time" in result["explanation"]

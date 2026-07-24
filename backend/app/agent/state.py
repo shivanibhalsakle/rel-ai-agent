@@ -22,7 +22,7 @@ from app.schemas.preferences import UserPreferences
 from app.scoring.base import ScoredResult
 from app.scoring.route_scoring import RouteCandidate
 
-Intent = Literal["fitness", "workspace", "route", "weather", "general", "unclear"]
+Intent = Literal["fitness", "workspace", "route", "weather", "add_to_calendar", "general", "unclear"]
 
 
 class Location(TypedDict, total=False):
@@ -32,9 +32,8 @@ class Location(TypedDict, total=False):
 
 
 class ApprovalRequest(TypedDict):
-    """Populated by request_user_approval (Milestone 8 — calendar writes).
-    Unused until then, but part of the state shape from the start per the
-    note above."""
+    """Populated by prepare_calendar_proposal, read by request_user_approval
+    and create_calendar_event (Milestone 8 -- calendar writes)."""
 
     kind: Literal["calendar_event"]
     payload: dict
@@ -91,6 +90,18 @@ class AgentState(TypedDict):
     calendar_freebusy: list[dict] | None
 
     # scoring/output
+    # last_weather_recommendation: added for M8.5 ("add to calendar" as a
+    # follow-up user message). Deliberately NOT reset every turn the way
+    # scored_results/explanations are (see app/api/chat.py's
+    # _PER_TURN_RESET_FIELDS) -- a later turn's "add that to my calendar"
+    # message needs to still find the weather pick that turn's own
+    # scored_results has long since been wiped for. Set by
+    # score_recommendations whenever intent is "weather" and it produced a
+    # top result; read by prepare_calendar_proposal. A minimal snapshot
+    # (title/start/end/location), not the full HourlyForecast/ScoredResult
+    # -- everything else about that result is irrelevant to building a
+    # calendar event.
+    last_weather_recommendation: dict | None
     scored_results: list[ScoredResult]
     # explanations: added beyond the design doc's original listing. The
     # design doc's node table describes generate_explanation producing "a
@@ -105,6 +116,16 @@ class AgentState(TypedDict):
 
     # control
     pending_approval: ApprovalRequest | None
+    # approval_decision: added for M8.5. Set ONLY by request_user_approval,
+    # from the value its interrupt() call resumes with -- this is the
+    # single field the design doc's "structurally impossible to bypass"
+    # requirement hinges on: create_calendar_event is reached by exactly
+    # one conditional edge (_route_after_approval, agent/graph.py), which
+    # reads this field and nothing else. No other node in the graph ever
+    # sets it. Per-turn-reset (see _PER_TURN_RESET_FIELDS) so a stale
+    # True from an earlier turn's approval can never leak into a new,
+    # unrelated turn.
+    approval_decision: bool | None
     tool_call_count: int
     tool_call_budget: int
     errors: list[ProviderError]
@@ -142,10 +163,12 @@ def new_agent_state(
         route_candidates=[],
         weather_data=[],
         calendar_freebusy=None,
+        last_weather_recommendation=None,
         scored_results=[],
         explanations={},
         explanation=None,
         pending_approval=None,
+        approval_decision=None,
         tool_call_count=0,
         tool_call_budget=tool_call_budget,
         errors=[],

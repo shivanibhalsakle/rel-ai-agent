@@ -48,9 +48,20 @@ Step 4 control-flow diagram.
   in the node keeps that invariant intact and costs one no-op
   tool_call_budget slot for a weather turn from a user with no calendar
   connected -- cheap compared to real Firestore I/O leaking into a
-  routing function. Calendar-event creation itself (approval interrupt +
-  create_calendar_event) is a separate, later addition to this graph
-  (M8.5/M8.6), not part of this branch.
+  routing function.
+- M8.5/M8.6: a second, separate branch off check_missing_info handles
+  "add_to_calendar" intent -- a follow-up user message asking to save a
+  previously-shown weather pick, not a search of any kind. It skips
+  geocode_location entirely (prepare_calendar_proposal reads
+  last_weather_recommendation, already resolved) and goes straight to
+  prepare_calendar_proposal -> request_user_approval -> [interrupt] ->
+  either create_calendar_event (confirmed) or calendar_rejected
+  (declined). Both of those, like every other terminal node, feed into
+  generate_explanation -> END rather than returning straight to END
+  themselves -- generate_explanation's existing "nothing to score, no
+  error" branch already no-ops without touching `explanation` (see that
+  node), so routing through it here is safe and keeps one exit path
+  instead of two.
 - Only geocode_location and search_places get retry/degrade error routing
   -- they're the two nodes with structured ProviderError reporting today.
   fetch_place_details' internal per-candidate review fetches aren't
@@ -88,6 +99,7 @@ from langgraph.graph import END, START, StateGraph
 from app.agent.nodes.ask_user import ask_user, generate_clarifying_question
 from app.agent.nodes.budget_exceeded import budget_exceeded
 from app.agent.nodes.check_missing_info import check_missing_info
+from app.agent.nodes.create_calendar_event import calendar_rejected, create_calendar_event
 from app.agent.nodes.enforce_tool_budget import check_tool_budget, is_within_budget
 from app.agent.nodes.fetch_calendar_freebusy import fetch_calendar_freebusy
 from app.agent.nodes.fetch_place_details import fetch_place_details
@@ -97,6 +109,8 @@ from app.agent.nodes.generate_route_candidates import generate_route_candidates
 from app.agent.nodes.geocode_location import geocode_location
 from app.agent.nodes.handle_provider_error import handle_provider_error, has_error, route_after_error
 from app.agent.nodes.load_preferences import load_preferences
+from app.agent.nodes.prepare_calendar_proposal import prepare_calendar_proposal
+from app.agent.nodes.request_user_approval import request_user_approval
 from app.agent.nodes.score_recommendations import score_recommendations
 from app.agent.nodes.search_places import search_places
 from app.agent.nodes.understand_request import understand_request
@@ -114,9 +128,27 @@ def _route_after_missing_info(state: AgentState) -> str:
     if state["missing_fields"]:
         return "generate_clarifying_question"
     intent = state["intent"]
+    if intent == "add_to_calendar":
+        return "prepare_calendar_proposal"
     if intent in _GEOCODE_REQUIRED_INTENTS:
         return "check_budget_geocode"
     return "generate_explanation"  # general/unclear (and defensively, anything else)
+
+
+def _route_after_calendar_proposal(state: AgentState) -> str:
+    """pending_approval only ends up set when prepare_calendar_proposal
+    found both a recent weather pick AND a connected calendar -- either
+    missing means it already wrote a direct explanation and there is
+    nothing to interrupt/resume (see that node's docstring)."""
+    return "request_user_approval" if state.get("pending_approval") else "generate_explanation"
+
+
+def _route_after_approval(state: AgentState) -> str:
+    """The one place approval_decision is read to decide whether
+    create_calendar_event ever runs -- see request_user_approval's
+    docstring on why this is the design doc's named structural
+    safeguard, not a prompt-level one."""
+    return "check_budget_calendar_write" if state.get("approval_decision") else "calendar_rejected"
 
 
 def _budget_gate(proceed_to: str):
@@ -191,6 +223,11 @@ def build_graph():
     builder.add_node("fetch_calendar_freebusy", fetch_calendar_freebusy)
     builder.add_node("score_recommendations", score_recommendations)
     builder.add_node("generate_explanation", generate_explanation)
+    builder.add_node("prepare_calendar_proposal", prepare_calendar_proposal)
+    builder.add_node("request_user_approval", request_user_approval)
+    builder.add_node("check_budget_calendar_write", check_tool_budget)
+    builder.add_node("create_calendar_event", create_calendar_event)
+    builder.add_node("calendar_rejected", calendar_rejected)
 
     builder.add_edge(START, "understand_request")
     builder.add_edge("understand_request", "load_preferences")
@@ -202,6 +239,7 @@ def build_graph():
         {
             "generate_clarifying_question": "generate_clarifying_question",
             "check_budget_geocode": "check_budget_geocode",
+            "prepare_calendar_proposal": "prepare_calendar_proposal",
             "generate_explanation": "generate_explanation",
         },
     )
@@ -273,6 +311,24 @@ def build_graph():
     builder.add_edge("fetch_calendar_freebusy", "score_recommendations")
 
     builder.add_edge("score_recommendations", "generate_explanation")
+
+    builder.add_conditional_edges(
+        "prepare_calendar_proposal",
+        _route_after_calendar_proposal,
+        {"request_user_approval": "request_user_approval", "generate_explanation": "generate_explanation"},
+    )
+    builder.add_conditional_edges(
+        "request_user_approval",
+        _route_after_approval,
+        {"check_budget_calendar_write": "check_budget_calendar_write", "calendar_rejected": "calendar_rejected"},
+    )
+    builder.add_conditional_edges(
+        "check_budget_calendar_write",
+        _budget_gate("create_calendar_event"),
+        {"create_calendar_event": "create_calendar_event", "budget_exceeded": "budget_exceeded"},
+    )
+    builder.add_edge("create_calendar_event", "generate_explanation")
+    builder.add_edge("calendar_rejected", "generate_explanation")
 
     builder.add_edge("budget_exceeded", END)
     builder.add_edge("generate_explanation", END)

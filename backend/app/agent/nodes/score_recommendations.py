@@ -29,8 +29,25 @@ adds coupling between two domains that don't need to ship together for
 either one to work; see generate_route_candidates.py / M6.3's own note
 on the same decision.
 """
+from datetime import datetime, timedelta, timezone
+
 from app.agent.state import AgentState
 from app.scoring import fitness_scoring, route_scoring, weather_scoring, workspace_scoring
+
+
+def _weather_calendar_snapshot(forecast, location: dict | None) -> dict:
+    """Builds the minimal snapshot M8.5's last_weather_recommendation
+    holds -- title/start/end/location, exactly what a calendar event
+    needs and nothing else. Each HourlyForecast entry represents a
+    one-hour window (see weather_provider.py), so end = start + 1h."""
+    start = datetime.fromisoformat(forecast.start_time.replace("Z", "+00:00"))
+    end = start + timedelta(hours=1)
+    return {
+        "title": "Time outside",
+        "start": start.astimezone(timezone.utc).isoformat(),
+        "end": end.astimezone(timezone.utc).isoformat(),
+        "location": (location or {}).get("formatted_address"),
+    }
 
 
 def score_recommendations(state: AgentState) -> dict:
@@ -53,8 +70,20 @@ def score_recommendations(state: AgentState) -> dict:
         )
     elif intent == "weather":
         results = weather_scoring.score_and_rank(state.get("weather_data", []), preferences)
+        update: dict = {"scored_results": results}
+        if results:
+            # M8.5: snapshot the top pick into the durable (not per-turn-
+            # reset) last_weather_recommendation field, so a later "add
+            # that to my calendar" turn can still find it once
+            # scored_results itself has been wiped for the new turn.
+            update["last_weather_recommendation"] = _weather_calendar_snapshot(
+                results[0].item, state.get("resolved_location")
+            )
+        return update
     else:
-        # general/unclear -- nothing to score.
+        # general/unclear/add_to_calendar -- nothing to score. (add_to_calendar
+        # never reaches this node at all -- see agent/graph.py's routing --
+        # this branch is just the safe default for anything unmatched.)
         results = []
 
     return {"scored_results": results}

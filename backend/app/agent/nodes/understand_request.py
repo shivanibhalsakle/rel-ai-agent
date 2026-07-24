@@ -25,11 +25,16 @@ SYSTEM_PROMPT = """You are the request-understanding step of a relocation and \
 routine copilot. Read the user's latest message and:
 
 1. Classify its intent as exactly one of: fitness, workspace, route, \
-weather, general, unclear.
+weather, add_to_calendar, general, unclear.
    - fitness: gyms, studios, yoga, running/working out at a place
    - workspace: cafes, coworking spaces, libraries, somewhere to work
    - route: a running/walking route or path
    - weather: best time of day to be outside / weather-driven scheduling
+   - add_to_calendar: the user wants a previously-mentioned weather \
+recommendation added to their Google Calendar -- e.g. "add that to my \
+calendar", "yes, put it on my calendar", "schedule that". Only use this \
+when the user is asking to SAVE something already discussed, not when \
+they're asking a new weather question.
    - general: anything else answerable without a search (greetings, \
 questions about the app itself)
    - unclear: you cannot tell what the user wants
@@ -55,7 +60,7 @@ states neither, and a route request is still valid with nothing here.
 
 
 class UnderstoodRequest(BaseModel):
-    intent: Literal["fitness", "workspace", "route", "weather", "general", "unclear"]
+    intent: Literal["fitness", "workspace", "route", "weather", "add_to_calendar", "general", "unclear"]
     location: str | None = None
     activities: list[str] = []
     budget_max_usd: float | None = None

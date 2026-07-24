@@ -2,8 +2,9 @@
 Chat request/response schemas (design doc Step 7 — POST /v1/chat and
 POST /v1/chat/{sessionId}/resume).
 
-`awaiting_approval` status exists in the design doc's contract but isn't
-reachable yet — calendar approval is Milestone 8. `Recommendation.score_breakdown`
+`awaiting_approval` status is reachable as of Milestone 8 (calendar-event
+approval) -- see ProposedEvent and app/api/chat.py's _build_response.
+`Recommendation.score_breakdown`
 is shaped like the contract's intent (per-factor sub-scores) but not
 byte-identical to its illustrative example, which was sketched before M3's
 real ScoreComponent shape existed. `dataConfidence` from the contract's
@@ -25,7 +26,24 @@ class ChatRequest(CamelModel):
 
 class ResumeRequest(CamelModel):
     answer: str | None = None
-    approved: bool | None = None  # reserved for Milestone 8 (calendar approval)
+    # Milestone 8 (calendar approval). Pydantic validates this as a real
+    # bool or None at the request boundary -- a client sending anything
+    # else (e.g. the string "yes") gets a 422 before app/api/chat.py's
+    # resume() even runs, which is what rules out a truthy-string bug
+    # ever reaching request_user_approval's interrupt() resume value.
+    approved: bool | None = None
+
+
+class ProposedEvent(CamelModel):
+    """Mirrors the design doc's `awaiting_approval` response example
+    exactly (title/start/end/location) -- these are precisely
+    prepare_calendar_proposal's ApprovalRequest.payload keys
+    (agent/nodes/prepare_calendar_proposal.py), passed straight through."""
+
+    title: str
+    start: str
+    end: str
+    location: str | None = None
 
 
 class Recommendation(CamelModel):
@@ -72,6 +90,10 @@ class ChatResponse(CamelModel):
     status: Literal["completed", "awaiting_input", "awaiting_approval"]
     intent: str | None = None
     question: str | None = None
+    # Set only for status == "awaiting_approval" (M8.5) -- the calendar
+    # event request_user_approval is pausing on, for the frontend's
+    # "Add to calendar?" card (M8.7) to render.
+    proposed_event: ProposedEvent | None = None
     recommendations: list[Recommendation] = Field(default_factory=list)
     # Set for the "general" reply, not-yet-supported, and budget-exceeded
     # cases -- an overall message rather than per-item recommendations.

@@ -33,6 +33,11 @@ EXPECTED_NODES = {
     "fetch_calendar_freebusy",
     "score_recommendations",
     "generate_explanation",
+    "prepare_calendar_proposal",
+    "request_user_approval",
+    "check_budget_calendar_write",
+    "create_calendar_event",
+    "calendar_rejected",
 }
 
 
