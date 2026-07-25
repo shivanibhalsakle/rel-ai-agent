@@ -1,6 +1,8 @@
 import time
 
-from app.agent.nodes.create_calendar_event import calendar_rejected, create_calendar_event
+import pytest
+
+from app.agent.nodes.create_calendar_event import ApprovalNotConfirmedError, calendar_rejected, create_calendar_event
 from app.agent.state import new_agent_state
 from app.providers.calendar_provider import CalendarTokens
 
@@ -65,6 +67,10 @@ class _StubProvider:
 def _state():
     state = new_agent_state(user_id="u1", session_id="s1")
     state["pending_approval"] = {"kind": "calendar_event", "payload": _PAYLOAD}
+    # Realistic precondition for every test below except the guard test
+    # itself -- create_calendar_event is never reached with this unset
+    # (see M8.8's ApprovalNotConfirmedError guard).
+    state["approval_decision"] = True
     return state
 
 
@@ -76,6 +82,49 @@ def test_calendar_rejected_sets_a_declined_message():
     update = calendar_rejected(new_agent_state(user_id="u1", session_id="s1"))
 
     assert "won't add" in update["explanation"]
+
+
+# ---- M8.8: the write is impossible without a confirmed approval_decision,
+# ---- enforced by the node itself, not only by how the graph happens to
+# ---- be wired (see create_calendar_event.py's module docstring). ----
+
+
+async def test_refuses_to_create_without_a_confirmed_approval_decision():
+    actions = _StubActions()
+    repo = _StubRepo(_valid_tokens())
+    provider = _StubProvider()
+
+    state = _state()
+    state["approval_decision"] = False  # the one precondition every other test in this file sets to True
+
+    with pytest.raises(ApprovalNotConfirmedError):
+        await create_calendar_event(state, provider=provider, repo=repo, actions=actions)
+
+    # Nothing happened -- no Firestore audit record, no provider call.
+    # This is the concrete "no code path" proof: even handed a fully
+    # valid pending_approval payload, the function will not act on it
+    # without approval_decision also being True.
+    assert actions.confirmed == []
+    assert provider.create_called_with is None
+
+
+async def test_refuses_to_create_when_approval_decision_was_never_set():
+    # A state that never went through request_user_approval at all --
+    # approval_decision defaults to None (new_agent_state), not False.
+    # Both are "not confirmed" and both must refuse.
+    actions = _StubActions()
+    repo = _StubRepo(_valid_tokens())
+    provider = _StubProvider()
+
+    state = new_agent_state(user_id="u1", session_id="s1")
+    state["pending_approval"] = {"kind": "calendar_event", "payload": _PAYLOAD}
+    assert state["approval_decision"] is None
+
+    with pytest.raises(ApprovalNotConfirmedError):
+        await create_calendar_event(state, provider=provider, repo=repo, actions=actions)
+
+    assert actions.confirmed == []
+    assert provider.create_called_with is None
 
 
 async def test_creates_the_event_and_marks_the_action_created():
