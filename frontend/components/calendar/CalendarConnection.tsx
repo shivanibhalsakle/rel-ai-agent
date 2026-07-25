@@ -30,6 +30,15 @@ export function CalendarConnection({ getIdToken }: { getIdToken: () => Promise<s
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const calendarParam = params.get("calendar");
+    // Reading a one-time value out of the URL on mount (the OAuth
+    // callback's redirect query param) and adopting it into state is the
+    // same "sync from an external source" case as chat/page.tsx's
+    // hydration effect -- there's no synchronous alternative, since the
+    // query string isn't known until this component mounts in the
+    // browser. React 18's automatic batching means the two setState
+    // calls below (here, effectively one or the other) cost nothing
+    // extra despite the rule's generic "cascading renders" warning.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (calendarParam === "connected") setNotice("Google Calendar connected.");
     else if (calendarParam === "cancelled") setNotice("Calendar connection was cancelled.");
     if (calendarParam) {

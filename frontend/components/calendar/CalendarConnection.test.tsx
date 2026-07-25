@@ -50,20 +50,28 @@ describe("CalendarConnection", () => {
   it("clicking Connect fetches an authorization URL and navigates the browser there", async () => {
     mockedGetStatus.mockResolvedValue({ connected: false });
     mockedConnect.mockResolvedValue({ authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?x=1" });
-    // jsdom doesn't implement real page navigation -- assert the component
-    // set window.location.href to the right value rather than that a real
-    // navigation occurred (out of scope for a unit test either way).
-    const hrefSpy = vi
-      .spyOn(window, "location", "set")
-      .mockImplementation(() => undefined);
+    // jsdom doesn't implement real page navigation -- assigning
+    // window.location.href for real logs a noisy "Not implemented"
+    // error even though the assignment itself doesn't throw. Swapping in
+    // a plain mutable stand-in object (Object.defineProperty, since
+    // window.location can't be reassigned directly) lets the component's
+    // `window.location.href = authorizationUrl` line run exactly as
+    // written and be asserted on, without that jsdom noise.
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, href: "" },
+    });
 
     render(<CalendarConnection getIdToken={async () => "token"} />);
     await waitFor(() => expect(screen.getByText("Connect Google Calendar")).toBeInTheDocument());
     fireEvent.click(screen.getByText("Connect Google Calendar"));
 
-    await waitFor(() => expect(mockedConnect).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(window.location.href).toBe("https://accounts.google.com/o/oauth2/v2/auth?x=1")
+    );
 
-    hrefSpy.mockRestore();
+    Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
   });
 
   it("clicking Disconnect calls disconnectCalendar and flips the UI back to Connect", async () => {
