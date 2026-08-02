@@ -77,12 +77,14 @@ def score_and_rank(
                 score=normalize(candidate.rating, low=1, high=5),
                 weight=RATING_WEIGHT,
                 detail=f"{candidate.rating}★ rating",
+                confidence="verified",
             ),
             ScoreComponent(
                 factor="review_count",
                 score=normalize(candidate.user_rating_count or 0, low=0, high=REVIEW_COUNT_CAP),
                 weight=importance.review_count,
                 detail=f"{candidate.user_rating_count or 0} reviews",
+                confidence="verified",
             ),
         ]
 
@@ -95,6 +97,7 @@ def score_and_rank(
                     score=normalize(minutes, low=0, high=high, invert=True),
                     weight=importance.distance,
                     detail=f"{minutes:g} min away",
+                    confidence="verified",
                 )
             )
 
@@ -107,6 +110,7 @@ def score_and_rank(
                     score=normalize(ordinal, low=0, high=4, invert=True),
                     weight=importance.affordability,
                     detail=f"{label} pricing",
+                    confidence="verified",
                 )
             )
 
@@ -124,6 +128,7 @@ def score_and_rank(
                         score=1.0 if matches else 0.0,
                         weight=INDOOR_OUTDOOR_WEIGHT,
                         detail=("Matches your indoor/outdoor preference" if matches else "Different setting than preferred"),
+                        confidence="verified",
                     )
                 )
 

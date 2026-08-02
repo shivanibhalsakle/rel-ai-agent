@@ -81,12 +81,14 @@ def score_and_rank(
                 score=_temperature_comfort(temp_c),
                 weight=TEMP_COMFORT_WEIGHT,
                 detail=f"{forecast.temperature_degrees:g}°{_unit_symbol(forecast.temperature_unit)}",
+                confidence="verified",
             ),
             ScoreComponent(
                 factor="daylight",
                 score=1.0 if forecast.is_daytime else _AFTER_DARK_SCORE,
                 weight=DAYLIGHT_WEIGHT,
                 detail="Daytime" if forecast.is_daytime else "After dark",
+                confidence="verified",
             ),
         ]
 
@@ -98,6 +100,7 @@ def score_and_rank(
                     score=normalize(precip, low=0, high=100, invert=True),
                     weight=PRECIP_WEIGHT,
                     detail=f"{precip}% chance of precipitation",
+                    confidence="verified",
                 )
             )
 
@@ -109,6 +112,7 @@ def score_and_rank(
                     score=normalize(forecast.wind_speed, low=0, high=_WIND_HIGH_BOUND, invert=True),
                     weight=WIND_WEIGHT,
                     detail=f"{forecast.wind_speed:g}{unit_label} wind",
+                    confidence="verified",
                 )
             )
 
@@ -119,6 +123,7 @@ def score_and_rank(
                     score=normalize(forecast.humidity_percent, low=30, high=90, invert=True),
                     weight=HUMIDITY_WEIGHT,
                     detail=f"{forecast.humidity_percent}% humidity",
+                    confidence="verified",
                 )
             )
 
@@ -129,6 +134,7 @@ def score_and_rank(
                     score=normalize(forecast.uv_index, low=0, high=11, invert=True),
                     weight=UV_WEIGHT,
                     detail=f"UV index {forecast.uv_index}",
+                    confidence="verified",
                 )
             )
 

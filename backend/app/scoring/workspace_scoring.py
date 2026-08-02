@@ -67,12 +67,14 @@ def score_and_rank(
                 score=normalize(candidate.rating, low=1, high=5),
                 weight=RATING_WEIGHT,
                 detail=f"{candidate.rating}★ rating",
+                confidence="verified",
             ),
             ScoreComponent(
                 factor="review_count",
                 score=normalize(candidate.user_rating_count or 0, low=0, high=REVIEW_COUNT_CAP),
                 weight=importance.review_count,
                 detail=f"{candidate.user_rating_count or 0} reviews",
+                confidence="verified",
             ),
         ]
 
@@ -85,6 +87,7 @@ def score_and_rank(
                     score=normalize(minutes, low=0, high=high, invert=True),
                     weight=importance.distance,
                     detail=f"{minutes:g} min away",
+                    confidence="verified",
                 )
             )
 
@@ -97,13 +100,18 @@ def score_and_rank(
                     score=normalize(ordinal, low=0, high=4, invert=True),
                     weight=importance.affordability,
                     detail=f"{label} pricing",
+                    confidence="verified",
                 )
             )
 
+            unavailable: list[str] = []
         known_amenities = amenities.get(candidate.place_id, {})
         for need_name in ("wifi", "outlets", "quiet", "food"):
             wants_it = getattr(needs, need_name)
-            if not wants_it or need_name not in known_amenities:
+            if not wants_it:
+                continue
+            if need_name not in known_amenities:
+                unavailable.append(need_name)
                 continue
             has_it = known_amenities[need_name]
             components.append(
@@ -116,9 +124,10 @@ def score_and_rank(
                         if has_it
                         else f"No {_AMENITY_LABELS[need_name].lower()}"
                     ),
+                    confidence="estimated",
                 )
             )
 
-        results.append(to_scored_result(item=candidate, components=components))
+        results.append(to_scored_result(item=candidate, components=components, unavailable_factors=unavailable))
 
     return rank(results)

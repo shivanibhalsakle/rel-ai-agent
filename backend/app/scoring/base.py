@@ -11,6 +11,7 @@ testable on its own.
 """
 import datetime
 from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -54,6 +55,7 @@ class ScoreComponent(BaseModel):
     score: float = Field(ge=0, le=1)
     weight: float = Field(ge=0)
     detail: str
+    confidence: Literal["verified", "estimated"]
 
 
 class ScoredResult(BaseModel, Generic[T]):
@@ -64,6 +66,7 @@ class ScoredResult(BaseModel, Generic[T]):
     item: T
     total_score: float = Field(ge=0, le=100)
     components: list[ScoreComponent]
+    unavailable_factors: list[str] = Field(default_factory=list)
 
     @property
     def explanation(self) -> list[str]:
@@ -85,13 +88,14 @@ def weighted_average(components: list[ScoreComponent]) -> float:
     return sum(c.score * c.weight for c in components) / total_weight
 
 
-def to_scored_result(item: T, components: list[ScoreComponent]) -> ScoredResult[T]:
+def to_scored_result(item: T, components: list[ScoreComponent], unavailable_factors: list[str] | None = None,) -> ScoredResult[T]:
     """Build a ScoredResult from an item and its components, converting the
     [0, 1] weighted average into the [0, 100] scale used in total_score."""
     return ScoredResult[T](
         item=item,
         total_score=round(weighted_average(components) * 100, 1),
         components=components,
+        unavailable_factors=unavailable_factors or [],
     )
 
 
@@ -122,6 +126,13 @@ def item_id(item) -> str:
         return start_time
     return "unknown"
 
+def data_confidence_map(result: ScoredResult) -> dict[str, str]:
+    """Per-factor confidence labels for the API response (design doc's
+    `dataConfidence` — verified/estimated for scored factors, unavailable
+    for ones we expected but couldn't score)."""
+    confidence = {c.factor: c.confidence for c in result.components}
+    confidence.update({factor: "unavailable" for factor in result.unavailable_factors})
+    return confidence
 
 def _format_hour_utc(start_time_iso: str) -> str:
     """Formats an HourlyForecast's ISO 8601 UTC start_time as a readable

@@ -109,6 +109,7 @@ def score_and_rank(
     for candidate in candidates:
         route = candidate.route
         components: list[ScoreComponent] = []
+        unavailable: list[str] = []
 
         if target_distance_meters is not None:
             score = _target_closeness(route.distance_meters, target_distance_meters)
@@ -118,6 +119,7 @@ def score_and_rank(
                     score=score,
                     weight=DISTANCE_TARGET_WEIGHT,
                     detail=f"{route.distance_meters / 1000:.1f} km (target {target_distance_meters / 1000:.1f} km)",
+                    confidence="verified",
                 )
             )
 
@@ -129,6 +131,7 @@ def score_and_rank(
                     score=score,
                     weight=DURATION_TARGET_WEIGHT,
                     detail=f"{route.duration_seconds / 60:.0f} min (target {target_duration_seconds / 60:.0f} min)",
+                    confidence="verified",
                 )
             )
 
@@ -138,6 +141,7 @@ def score_and_rank(
                 score=clamp01(candidate.park_coverage_ratio),
                 weight=PARK_COVERAGE_WEIGHT,
                 detail=f"{candidate.park_coverage_ratio * 100:.0f}% estimated through parks/green space",
+                confidence="estimated",
             )
         )
 
@@ -152,8 +156,11 @@ def score_and_rank(
                         f"Lower-traffic based on available data "
                         f"({road_score * 100:.0f}% estimated non-major roads) — not a safety guarantee"
                     ),
+                    confidence="estimated",
                 )
             )
+        else:
+            unavailable.append("road_exposure")
 
         comfort = weather_comfort.get(candidate.candidate_id)
         if comfort is not None:
@@ -163,9 +170,10 @@ def score_and_rank(
                     score=clamp01(comfort),
                     weight=WEATHER_COMFORT_WEIGHT,
                     detail="Favorable weather expected for this window",
+                    confidence="estimated",
                 )
             )
 
-        results.append(to_scored_result(item=candidate, components=components))
+        results.append(to_scored_result(item=candidate, components=components, unavailable_factors=unavailable))
 
     return rank(results)
